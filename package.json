@@ -1,0 +1,61 @@
+{
+  "name": "auto-backend",
+  "version": "1.0.0",
+  "description": "Auto platform backend - SAP CAP with TypeScript",
+  "repository": "<Add your repository here>",
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@auto/shared": "file:../auto-shared",
+    "@cap-js/postgres": "^1.14.2",
+    "@sap/cds": "^8",
+    "express": "^4"
+  },
+  "devDependencies": {
+    "@cap-js/cds-typer": ">=0.1",
+    "@cap-js/cds-types": "^0.9.0",
+    "@cap-js/sqlite": "^1",
+    "@eslint/js": "^9.39.2",
+    "@types/jest": "^29",
+    "@types/node": "^22.0.0",
+    "eslint": "^9.39.2",
+    "jest": "^29",
+    "prettier": "^3.8.1",
+    "ts-jest": "^29",
+    "tsx": "^4.21.0",
+    "typescript": "^5",
+    "typescript-eslint": "^8.54.0"
+  },
+  "scripts": {
+    "start": "cds-serve",
+    "watch": "cds-tsx w",
+    "build": "cds build --production",
+    "lint": "eslint --no-error-on-unmatched-pattern srv/ test/",
+    "format": "prettier --write srv/ db/ test/",
+    "format:check": "prettier --check srv/ db/ test/",
+    "type-check": "cds build",
+    "test": "jest"
+  },
+  "imports": {
+    "#cds-models/*": "./@cds-models/*/index.js"
+  },
+  "cds": {
+    "requires": {
+      "db": {
+        "kind": "sql",
+        "impl": "@cap-js/sqlite"
+      }
+    },
+    "[production]": {
+      "requires": {
+        "db": {
+          "kind": "postgres",
+          "impl": "@cap-js/postgres"
+        }
+      }
+    },
+    "typer": {
+      "output_directory": "@cds-models"
+    }
+  }
+}

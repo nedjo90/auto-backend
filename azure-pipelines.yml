@@ -1,0 +1,44 @@
+# PREREQUISITE: Azure Artifacts feed must be configured.
+# @auto/shared uses file: protocol locally; CI requires the published package.
+# Configure .npmrc with your Azure Artifacts feed URL and token before enabling.
+
+trigger:
+  branches:
+    include:
+      - main
+
+pool:
+  vmImage: "ubuntu-latest"
+
+steps:
+  - task: NodeTool@0
+    inputs:
+      versionSpec: "20.x"
+    displayName: "Use Node.js 20 LTS"
+
+  # Uncomment when Azure Artifacts feed is configured
+  # - task: npmAuthenticate@0
+  #   inputs:
+  #     workingFile: .npmrc
+  #   displayName: "Authenticate to Azure Artifacts"
+
+  - task: Cache@2
+    inputs:
+      key: 'npm | "$(Agent.OS)" | package-lock.json'
+      path: "node_modules"
+    displayName: "Cache node_modules"
+
+  - script: npm ci
+    displayName: "Install dependencies"
+
+  - script: npm run lint
+    displayName: "Lint"
+
+  - script: npm run type-check
+    displayName: "Type check"
+
+  - script: npm run build
+    displayName: "Build"
+
+  - script: npm test
+    displayName: "Test"
