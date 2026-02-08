@@ -68,11 +68,11 @@ export function createAuthMiddleware() {
         roles: [],
       };
 
-      // Query UserRole table for roles via CDS
+      // Query UserRole table for roles via CDS (resolves role codes through Role association)
       try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const cds = require("@sap/cds");
-        const { User, UserRole } = cds.entities("auto");
+        const { User, UserRole, Role } = cds.entities("auto");
 
         // Find user by azureAdB2cId
         const user = await cds.run(
@@ -81,8 +81,12 @@ export function createAuthMiddleware() {
 
         if (user) {
           userContext.id = user.ID;
-          const roles = await cds.run(cds.ql.SELECT.from(UserRole).where({ user_ID: user.ID }));
-          userContext.roles = roles.map((r: { role: string }) => r.role);
+          const userRoles = await cds.run(cds.ql.SELECT.from(UserRole).where({ user_ID: user.ID }));
+          if (userRoles.length > 0) {
+            const roleIds = userRoles.map((ur: { role_ID: string }) => ur.role_ID);
+            const roles = await cds.run(cds.ql.SELECT.from(Role).where({ ID: roleIds }));
+            userContext.roles = roles.map((r: { code: string }) => r.code);
+          }
         }
       } catch (cdsError) {
         // H7: Log CDS errors instead of silently swallowing
@@ -90,7 +94,7 @@ export function createAuthMiddleware() {
         console.error("[auth-middleware] CDS role lookup failed:", cdsError);
         // In production, fail the request — roles are required for authorization
         if (process.env.NODE_ENV === "production") {
-          res.status(503).json({
+          res.setHeader("Content-Type", "application/problem+json").status(503).json({
             type: "https://httpstatuses.com/503",
             title: "Service Unavailable",
             status: 503,

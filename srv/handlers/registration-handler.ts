@@ -13,10 +13,7 @@ export function validateRegistrationInput(
   const errors: string[] = [];
   for (const field of fields) {
     const value = input[field.fieldName];
-    if (
-      field.isRequired &&
-      (!value || (typeof value === "string" && value.trim() === ""))
-    ) {
+    if (field.isRequired && (!value || (typeof value === "string" && value.trim() === ""))) {
       errors.push(`${field.fieldName} is required`);
     }
     if (field.validationPattern && value) {
@@ -53,20 +50,16 @@ export default class RegistrationService extends cds.ApplicationService {
   private getRegistrationFields = async () => {
     const { ConfigRegistrationField } = cds.entities("auto");
     return cds.run(
-      SELECT.from(ConfigRegistrationField)
-        .where({ isVisible: true })
-        .orderBy("displayOrder asc"),
+      SELECT.from(ConfigRegistrationField).where({ isVisible: true }).orderBy("displayOrder asc"),
     );
   };
 
   private registerUser = async (req: cds.Request) => {
     const input = req.data.input;
-    const { ConfigRegistrationField, User, UserRole } = cds.entities("auto");
+    const { ConfigRegistrationField, User, UserRole, Role } = cds.entities("auto");
 
     // Step a: Validate input against config field rules
-    const fields = await cds.run(
-      SELECT.from(ConfigRegistrationField).where({ isVisible: true }),
-    );
+    const fields = await cds.run(SELECT.from(ConfigRegistrationField).where({ isVisible: true }));
     const validationErrors = validateRegistrationInput(input, fields);
 
     // Server-side password validation (fixed field, not config-driven)
@@ -81,9 +74,7 @@ export default class RegistrationService extends cds.ApplicationService {
     }
 
     // Step b-check: Duplicate email
-    const existing = await cds.run(
-      SELECT.one.from(User).where({ email: input.email }),
-    );
+    const existing = await cds.run(SELECT.one.from(User).where({ email: input.email }));
     if (existing) {
       return req.reject(409, "Email already registered");
     }
@@ -123,14 +114,20 @@ export default class RegistrationService extends cds.ApplicationService {
           status: "active",
         }),
       );
+      const buyerRole = await cds.run(SELECT.one.from(Role).where({ code: "buyer" }));
+      if (!buyerRole) {
+        throw new Error("Buyer role not found in database");
+      }
       await cds.run(
         INSERT.into(UserRole).entries({
           ID: cds.utils.uuid(),
           user_ID: userId,
-          role: "buyer",
+          role_ID: buyerRole.ID,
+          assignedAt: new Date().toISOString(),
+          assignedBy_ID: null,
         }),
       );
-    } catch (err: unknown) {
+    } catch {
       // Rollback: disable AD B2C user on DB failure
       try {
         await this.identityProvider.disableUser(externalId);
