@@ -8,5 +8,7 @@ service SecurityService {
     mfaStatus : String;
   }
 
+  // L5: CDS-level restriction as defense-in-depth (handler also checks)
+  @restrict: [{ grant: '*', to: 'authenticated-user' }]
   action toggle2FA(enable : Boolean) returns SecurityResult;
 }

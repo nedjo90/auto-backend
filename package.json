@@ -18,11 +18,15 @@
     "@cap-js/cds-typer": ">=0.1",
     "@cap-js/cds-types": "^0.9.0",
     "@cap-js/sqlite": "^1",
+    "@commitlint/cli": "^20.4.1",
+    "@commitlint/config-conventional": "^20.4.1",
     "@eslint/js": "^9.39.2",
     "@types/jest": "^29",
     "@types/node": "^22.0.0",
     "eslint": "^9.39.2",
+    "husky": "^9.1.7",
     "jest": "^29",
+    "lint-staged": "^16.2.7",
     "prettier": "^3.8.1",
     "ts-jest": "^29",
     "tsx": "^4.21.0",
@@ -37,7 +41,14 @@
     "format": "prettier --write srv/ db/ test/",
     "format:check": "prettier --check srv/ db/ test/",
     "type-check": "cds build",
-    "test": "jest"
+    "test": "jest",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,js}": [
+      "eslint --fix --no-error-on-unmatched-pattern",
+      "prettier --write"
+    ]
   },
   "imports": {
     "#cds-models/*": "./@cds-models/*/index.js"

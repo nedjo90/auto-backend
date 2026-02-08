@@ -1,23 +1,35 @@
 import type { Request, Response, NextFunction } from "express";
+import type { IUserContext } from "@auto/shared";
 import { validateToken, JwtValidationError } from "../lib/jwt-validator";
 
-export interface UserContext {
-  id?: string;
-  azureAdB2cId: string;
-  email?: string;
-  roles: string[];
+// Re-export for consumers
+export type { IUserContext };
+
+// L6: Express type augmentation for req.user
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace Express {
+    interface Request {
+      user?: IUserContext;
+    }
+  }
 }
 
 /**
  * RFC 7807 problem details response for auth errors.
+ * M8: Includes required Content-Type header.
  */
-function sendUnauthorized(res: Response, detail: string) {
-  res.status(401).json({
-    type: "https://httpstatuses.com/401",
-    title: "Unauthorized",
-    status: 401,
-    detail,
-  });
+function sendUnauthorized(res: Response, detail: string, instance?: string) {
+  res
+    .setHeader("Content-Type", "application/problem+json")
+    .status(401)
+    .json({
+      type: "https://httpstatuses.com/401",
+      title: "Unauthorized",
+      status: 401,
+      detail,
+      ...(instance ? { instance } : {}),
+    });
 }
 
 /**
@@ -30,19 +42,19 @@ export function createAuthMiddleware() {
     const authHeader = req.headers.authorization;
 
     if (!authHeader) {
-      sendUnauthorized(res, "Missing Authorization header");
+      sendUnauthorized(res, "Missing Authorization header", req.originalUrl);
       return;
     }
 
     if (!authHeader.startsWith("Bearer ")) {
-      sendUnauthorized(res, "Invalid Authorization header format");
+      sendUnauthorized(res, "Invalid Authorization header format", req.originalUrl);
       return;
     }
 
     const token = authHeader.slice(7);
 
     if (!token) {
-      sendUnauthorized(res, "Empty Bearer token");
+      sendUnauthorized(res, "Empty Bearer token", req.originalUrl);
       return;
     }
 
@@ -50,7 +62,7 @@ export function createAuthMiddleware() {
       const decoded = await validateToken(token);
 
       // Build user context
-      const userContext: UserContext = {
+      const userContext: IUserContext = {
         azureAdB2cId: decoded.sub,
         email: decoded.email,
         roles: [],
@@ -58,6 +70,7 @@ export function createAuthMiddleware() {
 
       // Query UserRole table for roles via CDS
       try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const cds = require("@sap/cds");
         const { User, UserRole } = cds.entities("auto");
 
@@ -68,26 +81,34 @@ export function createAuthMiddleware() {
 
         if (user) {
           userContext.id = user.ID;
-          const roles = await cds.run(
-            cds.ql.SELECT.from(UserRole).where({ user_ID: user.ID }),
-          );
-          userContext.roles = roles.map(
-            (r: { role: string }) => r.role,
-          );
+          const roles = await cds.run(cds.ql.SELECT.from(UserRole).where({ user_ID: user.ID }));
+          userContext.roles = roles.map((r: { role: string }) => r.role);
         }
-      } catch {
-        // CDS not available or DB query failed — continue with empty roles
-        // This allows the middleware to work even during testing without CDS
+      } catch (cdsError) {
+        // H7: Log CDS errors instead of silently swallowing
+        // eslint-disable-next-line no-console
+        console.error("[auth-middleware] CDS role lookup failed:", cdsError);
+        // In production, fail the request — roles are required for authorization
+        if (process.env.NODE_ENV === "production") {
+          res.status(503).json({
+            type: "https://httpstatuses.com/503",
+            title: "Service Unavailable",
+            status: 503,
+            detail: "Authorization service temporarily unavailable",
+          });
+          return;
+        }
+        // In dev/test: continue with empty roles to allow middleware testing without CDS
       }
 
-      (req as any).user = userContext;
+      req.user = userContext;
       next();
     } catch (error) {
       if (error instanceof JwtValidationError) {
-        sendUnauthorized(res, error.message);
+        sendUnauthorized(res, error.message, req.originalUrl);
         return;
       }
-      sendUnauthorized(res, "Authentication failed");
+      sendUnauthorized(res, "Authentication failed", req.originalUrl);
     }
   };
 }

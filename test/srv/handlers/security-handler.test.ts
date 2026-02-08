@@ -1,3 +1,13 @@
+// Mock @sap/cds before importing handler
+const mockWhere = jest.fn();
+const mockFrom = jest.fn().mockReturnValue({ where: mockWhere });
+jest.mock("@sap/cds", () => ({
+  __esModule: true,
+  default: {
+    ql: { SELECT: { one: { from: mockFrom } } },
+  },
+}));
+
 import { SecurityHandler } from "../../../srv/handlers/security-handler";
 
 // Mock the Graph Client adapter
@@ -35,6 +45,7 @@ describe("security-handler", () => {
         reject: jest.fn(),
       };
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await handler.handleToggle2FA(req as any);
 
       expect(req.reject).toHaveBeenCalledWith(401, expect.any(String));
@@ -43,35 +54,42 @@ describe("security-handler", () => {
     it("should reject if user does not have Seller role", async () => {
       const req = {
         data: { enable: true },
-        user: { id: "user-1", attr: { roles: ["buyer"] } },
+        user: { id: "user-1", roles: ["buyer"] },
         reject: jest.fn(),
       };
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await handler.handleToggle2FA(req as any);
 
       expect(req.reject).toHaveBeenCalledWith(403, expect.any(String));
     });
 
     it("should succeed for Seller role user", async () => {
+      const mockUser = { azureAdB2cId: "azure-id-123" };
       const mockCds = {
-        run: jest.fn().mockResolvedValue({ azureAdB2cId: "azure-id-123" }),
-        ql: { SELECT: { one: { from: jest.fn().mockReturnValue({ where: jest.fn() }) } } },
+        run: jest.fn().mockResolvedValue(mockUser),
+        entities: jest.fn().mockReturnValue({ User: "auto.User" }),
       };
 
       const req = {
         data: { enable: true },
         user: {
           id: "user-1",
-          attr: { roles: ["private_seller"] },
+          roles: ["private_seller"],
         },
         reject: jest.fn(),
       };
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const result = await handler.handleToggle2FA(req as any, mockCds as any);
 
       // Should not reject
       expect(req.reject).not.toHaveBeenCalledWith(401, expect.any(String));
       expect(req.reject).not.toHaveBeenCalledWith(403, expect.any(String));
+      expect(result).toEqual({
+        success: true,
+        mfaStatus: "enabled",
+      });
     });
   });
 });
