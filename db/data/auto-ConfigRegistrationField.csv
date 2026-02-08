@@ -1,0 +1,6 @@
+ID;fieldName;fieldType;isRequired;isVisible;displayOrder;validationPattern;labelKey;placeholderKey
+b1a2c3d4-e5f6-7890-abcd-ef1234567801;email;email;true;true;10;;registration.email;registration.email.placeholder
+b1a2c3d4-e5f6-7890-abcd-ef1234567802;firstName;text;true;true;20;;registration.firstName;registration.firstName.placeholder
+b1a2c3d4-e5f6-7890-abcd-ef1234567803;lastName;text;true;true;30;;registration.lastName;registration.lastName.placeholder
+b1a2c3d4-e5f6-7890-abcd-ef1234567804;phone;tel;false;true;40;;registration.phone;registration.phone.placeholder
+b1a2c3d4-e5f6-7890-abcd-ef1234567805;siret;text;false;true;50;\d{14};registration.siret;registration.siret.placeholder

@@ -1,3 +1,5 @@
-// Auto platform domain model
-// Entities will be defined in subsequent stories
 namespace auto;
+
+using from './schema/config';
+using from './schema/user';
+using from './schema/consent';
