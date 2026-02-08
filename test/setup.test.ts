@@ -29,7 +29,7 @@ describe("Backend project setup", () => {
 
   it("should import @auto/shared types successfully", () => {
     expect(ROLES).toBeDefined();
-    expect(ROLES).toContain("admin");
+    expect(ROLES).toContain("administrator");
     expect(LISTING_STATUS).toBeDefined();
     expect(LISTING_STATUS).toContain("published");
   });
