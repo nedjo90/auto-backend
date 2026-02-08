@@ -4,10 +4,7 @@ import * as path from "path";
 const rootDir = path.resolve(__dirname, "../..");
 
 describe("CDS Schema - ConfigRegistrationField (Task 1.1)", () => {
-  const configCds = fs.readFileSync(
-    path.join(rootDir, "db/schema/config.cds"),
-    "utf-8",
-  );
+  const configCds = fs.readFileSync(path.join(rootDir, "db/schema/config.cds"), "utf-8");
 
   it("should define ConfigRegistrationField entity with cuid aspect", () => {
     expect(configCds).toContain("entity ConfigRegistrationField : cuid");
@@ -35,10 +32,7 @@ describe("CDS Schema - ConfigRegistrationField (Task 1.1)", () => {
 });
 
 describe("CDS Schema - User (Task 1.2)", () => {
-  const userCds = fs.readFileSync(
-    path.join(rootDir, "db/schema/user.cds"),
-    "utf-8",
-  );
+  const userCds = fs.readFileSync(path.join(rootDir, "db/schema/user.cds"), "utf-8");
 
   it("should define User entity with cuid and managed aspects", () => {
     expect(userCds).toContain("entity User : cuid, managed");
@@ -69,7 +63,7 @@ describe("CDS Schema - User (Task 1.2)", () => {
   });
 
   it("should have isAnonymized default false", () => {
-    expect(userCds).toContain("isAnonymized : Boolean default false");
+    expect(userCds).toMatch(/isAnonymized\s+:\s+Boolean default false/);
   });
 
   it("should have status default active", () => {
@@ -82,10 +76,7 @@ describe("CDS Schema - User (Task 1.2)", () => {
 });
 
 describe("Seed Data - ConfigRegistrationField (Task 1.3)", () => {
-  const csvPath = path.join(
-    rootDir,
-    "db/data/auto-ConfigRegistrationField.csv",
-  );
+  const csvPath = path.join(rootDir, "db/data/auto-ConfigRegistrationField.csv");
 
   it("should have seed data CSV file", () => {
     expect(fs.existsSync(csvPath)).toBe(true);

@@ -30,3 +30,13 @@ entity ConfigFeature : cuid {
   requiredRole : Association to Role;
   isActive     : Boolean default true;
 }
+
+@assert.unique: {fieldName}
+entity ConfigProfileField : cuid {
+  fieldName               : String(50);
+  isVisibleToPublic       : Boolean default false;
+  contributesToCompletion : Boolean default true;
+  weight                  : Integer default 1;
+  tipKey                  : String(200);
+  displayOrder            : Integer;
+}

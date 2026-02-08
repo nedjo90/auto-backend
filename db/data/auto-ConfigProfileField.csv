@@ -1,0 +1,12 @@
+ID;fieldName;isVisibleToPublic;contributesToCompletion;weight;tipKey;displayOrder
+c1a2c3d4-e5f6-7890-abcd-ef1234560001;firstName;true;true;2;;10
+c1a2c3d4-e5f6-7890-abcd-ef1234560002;lastName;true;true;2;;20
+c1a2c3d4-e5f6-7890-abcd-ef1234560003;displayName;true;true;1;profile.tip.displayName;30
+c1a2c3d4-e5f6-7890-abcd-ef1234560004;phone;false;true;2;profile.tip.phone;40
+c1a2c3d4-e5f6-7890-abcd-ef1234560005;addressStreet;false;true;1;profile.tip.address;50
+c1a2c3d4-e5f6-7890-abcd-ef1234560006;addressCity;false;true;1;profile.tip.address;60
+c1a2c3d4-e5f6-7890-abcd-ef1234560007;addressPostalCode;false;true;1;profile.tip.address;70
+c1a2c3d4-e5f6-7890-abcd-ef1234560008;siret;true;true;3;profile.tip.siret;80
+c1a2c3d4-e5f6-7890-abcd-ef1234560009;companyName;true;true;2;profile.tip.companyName;90
+c1a2c3d4-e5f6-7890-abcd-ef1234560010;avatarUrl;true;true;1;profile.tip.avatar;100
+c1a2c3d4-e5f6-7890-abcd-ef1234560011;bio;true;true;2;profile.tip.bio;110
