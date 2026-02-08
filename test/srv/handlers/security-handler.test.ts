@@ -1,3 +1,8 @@
+// Set env vars before importing handler (M1: getGraphClient validates env)
+process.env.AZURE_AD_B2C_TENANT_ID = "test-tenant-id";
+process.env.AZURE_AD_B2C_GRAPH_CLIENT_ID = "test-graph-client-id";
+process.env.AZURE_AD_B2C_CLIENT_SECRET = "test-client-secret";
+
 // Mock @sap/cds before importing handler
 const mockWhere = jest.fn();
 const mockFrom = jest.fn().mockReturnValue({ where: mockWhere });
@@ -75,7 +80,7 @@ describe("security-handler", () => {
         data: { enable: true },
         user: {
           id: "user-1",
-          roles: ["private_seller"],
+          roles: ["seller"],
         },
         reject: jest.fn(),
       };

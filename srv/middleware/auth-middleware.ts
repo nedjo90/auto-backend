@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
-import type { IUserContext } from "@auto/shared";
+import type { IUserContext, RoleCode } from "@auto/shared";
+import { ROLES } from "@auto/shared";
 import { validateToken, JwtValidationError } from "../lib/jwt-validator";
 
 // Re-export for consumers
@@ -85,7 +86,10 @@ export function createAuthMiddleware() {
           if (userRoles.length > 0) {
             const roleIds = userRoles.map((ur: { role_ID: string }) => ur.role_ID);
             const roles = await cds.run(cds.ql.SELECT.from(Role).where({ ID: roleIds }));
-            userContext.roles = roles.map((r: { code: string }) => r.code);
+            const roleCodes = roles.map((r: { code: string }) => r.code);
+            userContext.roles = roleCodes.filter((code: string): code is RoleCode =>
+              (ROLES as readonly string[]).includes(code),
+            );
           }
         }
       } catch (cdsError) {

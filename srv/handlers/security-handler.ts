@@ -2,7 +2,7 @@ import cds from "@sap/cds";
 import { Client } from "@microsoft/microsoft-graph-client";
 import { ClientSecretCredential } from "@azure/identity";
 
-const SELLER_ROLES = ["private_seller", "professional_seller"];
+const SELLER_ROLES = ["seller"];
 
 let graphClient: Client | null = null;
 
@@ -41,7 +41,9 @@ export class SecurityHandler {
         return;
       }
 
-      // Call Azure AD B2C Graph API to update MFA
+      // TODO: B2C MFA is managed via user flows/custom policies, not per-user Graph API.
+      // This implementation uses Entra ID's strongAuthenticationRequirements which may not
+      // work with B2C tenants. Needs redesign to use B2C extension attributes or custom policy.
       const client = this.getGraphClient();
       const mfaRequirements = enable ? [{ perUserMfaState: "enforced" }] : [];
 
@@ -65,9 +67,15 @@ export class SecurityHandler {
   private getGraphClient(): Client {
     if (graphClient) return graphClient;
 
-    const tenantId = process.env.AZURE_AD_B2C_TENANT_ID || "";
-    const clientId = process.env.AZURE_AD_B2C_GRAPH_CLIENT_ID || "";
-    const clientSecret = process.env.AZURE_AD_B2C_CLIENT_SECRET || "";
+    const tenantId = process.env.AZURE_AD_B2C_TENANT_ID;
+    const clientId = process.env.AZURE_AD_B2C_GRAPH_CLIENT_ID;
+    const clientSecret = process.env.AZURE_AD_B2C_CLIENT_SECRET;
+
+    if (!tenantId || !clientId || !clientSecret) {
+      throw new Error(
+        "Missing required Graph API configuration: AZURE_AD_B2C_TENANT_ID, AZURE_AD_B2C_GRAPH_CLIENT_ID, and AZURE_AD_B2C_CLIENT_SECRET must be set",
+      );
+    }
 
     const credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
 

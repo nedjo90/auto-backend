@@ -13,10 +13,10 @@ export type { IDecodedToken };
 
 // H5: Lazy env var access with fail-fast validation
 function getConfig() {
-  const tenantName = process.env.AZURE_AD_B2C_TENANT_NAME || "";
+  const tenantName = process.env.AZURE_AD_B2C_TENANT_NAME;
   const policyName = process.env.AZURE_AD_B2C_SIGN_UP_SIGN_IN_FLOW || "B2C_1_signupsignin";
-  const clientId = process.env.AZURE_AD_B2C_CLIENT_ID || "";
-  const tenantId = process.env.AZURE_AD_B2C_TENANT_ID || "";
+  const clientId = process.env.AZURE_AD_B2C_CLIENT_ID;
+  const tenantId = process.env.AZURE_AD_B2C_TENANT_ID;
 
   if (!tenantName || !clientId || !tenantId) {
     throw new JwtValidationError(
