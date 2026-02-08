@@ -1,6 +1,7 @@
 namespace auto;
 
 using {cuid} from '@sap/cds/common';
+using {auto.Role} from './rbac';
 
 @assert.unique: {fieldName}
 entity ConfigRegistrationField : cuid {
@@ -19,4 +20,13 @@ entity ConfigParameter : cuid {
   key         : String(100);
   value       : String(500);
   description : String(500);
+}
+
+@assert.unique: {code}
+entity ConfigFeature : cuid {
+  code         : String(50);
+  name         : String(100);
+  requiresAuth : Boolean default false;
+  requiredRole : Association to Role;
+  isActive     : Boolean default true;
 }

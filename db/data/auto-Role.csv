@@ -1,0 +1,6 @@
+ID;code;name;description;level
+a0000001-0000-0000-0000-000000000001;visitor;Visitor;Anonymous visitor;0
+a0000001-0000-0000-0000-000000000002;buyer;Buyer;Registered buyer;1
+a0000001-0000-0000-0000-000000000003;seller;Seller;Vehicle seller;2
+a0000001-0000-0000-0000-000000000004;moderator;Moderator;Content moderator;3
+a0000001-0000-0000-0000-000000000005;administrator;Administrator;Platform administrator;4

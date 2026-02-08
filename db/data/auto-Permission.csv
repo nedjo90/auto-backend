@@ -1,0 +1,7 @@
+ID;code;description
+b0000001-0000-0000-0000-000000000001;listing.view;View vehicle listings
+b0000001-0000-0000-0000-000000000002;listing.create;Create new vehicle listings
+b0000001-0000-0000-0000-000000000003;listing.edit;Edit own vehicle listings
+b0000001-0000-0000-0000-000000000004;listing.moderate;Moderate vehicle listings
+b0000001-0000-0000-0000-000000000005;user.manage;Manage user accounts and roles
+b0000001-0000-0000-0000-000000000006;admin.access;Access administration panel

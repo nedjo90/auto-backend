@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-function-type */
 import { validateRegistrationInput } from "../../../srv/handlers/registration-handler";
 
 // Mock the adapter factory
@@ -199,6 +200,7 @@ jest.mock("@sap/cds", () => {
         ConfigRegistrationField: "ConfigRegistrationField",
         User: "User",
         UserRole: "UserRole",
+        Role: "Role",
       })),
       run: jest.fn(),
       utils: { uuid: jest.fn(() => "test-uuid-123") },
@@ -233,8 +235,7 @@ const mockUuid = cds.utils.uuid as jest.Mock;
 
 // Import handler after CDS is mocked
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const RegistrationService =
-  require("../../../srv/handlers/registration-handler").default;
+const RegistrationService = require("../../../srv/handlers/registration-handler").default;
 
 describe("RegistrationService handler", () => {
   let service: any;
@@ -253,12 +254,10 @@ describe("RegistrationService handler", () => {
 
     registeredHandlers = {};
     service = new RegistrationService();
-    service.on = jest.fn(
-      (event: string, entityOrHandler: any, handler?: any) => {
-        const key = handler ? `${event}:${entityOrHandler}` : event;
-        registeredHandlers[key] = handler || entityOrHandler;
-      },
-    );
+    service.on = jest.fn((event: string, entityOrHandler: any, handler?: any) => {
+      const key = handler ? `${event}:${entityOrHandler}` : event;
+      registeredHandlers[key] = handler || entityOrHandler;
+    });
     service.identityProvider = mockAdapter;
     await service.init();
   });
@@ -345,6 +344,7 @@ describe("RegistrationService handler", () => {
         .mockResolvedValueOnce(configFields) // getFields
         .mockResolvedValueOnce(null) // no existing user
         .mockResolvedValueOnce(undefined) // INSERT user
+        .mockResolvedValueOnce({ ID: "buyer-role-id", code: "buyer" }) // SELECT.one Role
         .mockResolvedValueOnce(undefined); // INSERT role
 
       mockAdapter.createUser.mockResolvedValueOnce("ad-b2c-id-123");
@@ -374,19 +374,14 @@ describe("RegistrationService handler", () => {
       const handler = registeredHandlers["register"];
 
       await expect(handler(req)).rejects.toThrow();
-      expect(req.reject).toHaveBeenCalledWith(
-        400,
-        expect.stringContaining("email is required"),
-      );
+      expect(req.reject).toHaveBeenCalledWith(400, expect.stringContaining("email is required"));
     });
 
     it("should reject with 409 for duplicate email", async () => {
-      mockRun
-        .mockResolvedValueOnce(configFields)
-        .mockResolvedValueOnce({
-          ID: "existing-id",
-          email: "new@example.com",
-        });
+      mockRun.mockResolvedValueOnce(configFields).mockResolvedValueOnce({
+        ID: "existing-id",
+        email: "new@example.com",
+      });
 
       const req = mockReq(validInput);
       const handler = registeredHandlers["register"];
@@ -402,22 +397,15 @@ describe("RegistrationService handler", () => {
     });
 
     it("should reject with 502 on AD B2C API failure", async () => {
-      mockRun
-        .mockResolvedValueOnce(configFields)
-        .mockResolvedValueOnce(null);
+      mockRun.mockResolvedValueOnce(configFields).mockResolvedValueOnce(null);
 
-      mockAdapter.createUser.mockRejectedValueOnce(
-        new Error("Graph API timeout"),
-      );
+      mockAdapter.createUser.mockRejectedValueOnce(new Error("Graph API timeout"));
 
       const req = mockReq(validInput);
       const handler = registeredHandlers["register"];
 
       await expect(handler(req)).rejects.toThrow();
-      expect(req.reject).toHaveBeenCalledWith(
-        502,
-        "Identity provider error: Graph API timeout",
-      );
+      expect(req.reject).toHaveBeenCalledWith(502, "Identity provider error: Graph API timeout");
     });
 
     it("should rollback AD B2C user on DB insert failure", async () => {
@@ -442,9 +430,7 @@ describe("RegistrationService handler", () => {
         .mockRejectedValueOnce(new Error("DB error"));
 
       mockAdapter.createUser.mockResolvedValueOnce("ad-b2c-id-789");
-      mockAdapter.disableUser.mockRejectedValueOnce(
-        new Error("Rollback failed"),
-      );
+      mockAdapter.disableUser.mockRejectedValueOnce(new Error("Rollback failed"));
 
       const req = mockReq(validInput);
       const handler = registeredHandlers["register"];
@@ -472,10 +458,7 @@ describe("RegistrationService handler", () => {
       const handler = registeredHandlers["register"];
 
       await expect(handler(req)).rejects.toThrow();
-      expect(req.reject).toHaveBeenCalledWith(
-        400,
-        expect.stringContaining("password is required"),
-      );
+      expect(req.reject).toHaveBeenCalledWith(400, expect.stringContaining("password is required"));
     });
 
     it("should reject short password (< 8 chars)", async () => {
@@ -496,6 +479,7 @@ describe("RegistrationService handler", () => {
         .mockResolvedValueOnce(configFields)
         .mockResolvedValueOnce(null)
         .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce({ ID: "buyer-role-id", code: "buyer" })
         .mockResolvedValueOnce(undefined);
 
       mockAdapter.createUser.mockResolvedValueOnce("ad-b2c-id-opt");
