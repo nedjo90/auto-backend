@@ -7,9 +7,12 @@
   "private": true,
   "dependencies": {
     "@auto/shared": "file:../auto-shared",
+    "@azure/identity": "^4.13.0",
     "@cap-js/postgres": "^1.14.2",
+    "@microsoft/microsoft-graph-client": "^3.0.7",
     "@sap/cds": "^8",
-    "express": "^4"
+    "express": "^4",
+    "jose": "^6.1.3"
   },
   "devDependencies": {
     "@cap-js/cds-typer": ">=0.1",
