@@ -1,0 +1,6 @@
+ID;key;condition;action;active
+i0000001-0000-0000-0000-000000000001;auto.flag.reports;report_count >= 3;flag_for_review;true
+i0000001-0000-0000-0000-000000000002;auto.hide.critical;severity == 'critical';hide_listing;true
+i0000001-0000-0000-0000-000000000003;auto.warn.price;price_deviation > 50%;warn_seller;true
+i0000001-0000-0000-0000-000000000004;auto.block.repeat;violation_count >= 5;block_account;true
+i0000001-0000-0000-0000-000000000005;auto.verify.new;seller_age_days < 7;require_verification;true

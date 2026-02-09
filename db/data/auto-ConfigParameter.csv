@@ -1,6 +1,15 @@
-ID;key;value;description
-a1b2c3d4-e5f6-7890-abcd-ef1234567001;session.inactivity.timeout.minutes;30;Inactivity timeout in minutes before session expires
-a1b2c3d4-e5f6-7890-abcd-ef1234567002;session.timeout.warning.minutes;5;Minutes before timeout to show warning dialog
-a1b2c3d4-e5f6-7890-abcd-ef1234567003;rgpd.export.download.expiry.hours;48;Download link valid for N hours
-a1b2c3d4-e5f6-7890-abcd-ef1234567004;rgpd.export.processing.timeout.minutes;30;Max export processing time in minutes
-a1b2c3d4-e5f6-7890-abcd-ef1234567005;rgpd.anonymization.cooldown.hours;72;Waiting period before anonymization is executed
+ID;key;value;type;category;description
+a1b2c3d4-e5f6-7890-abcd-ef1234567001;session.inactivity.timeout.minutes;30;integer;session;Inactivity timeout in minutes before session expires
+a1b2c3d4-e5f6-7890-abcd-ef1234567002;session.timeout.warning.minutes;5;integer;session;Minutes before timeout to show warning dialog
+a1b2c3d4-e5f6-7890-abcd-ef1234567003;rgpd.export.download.expiry.hours;48;integer;rgpd;Download link valid for N hours
+a1b2c3d4-e5f6-7890-abcd-ef1234567004;rgpd.export.processing.timeout.minutes;30;integer;rgpd;Max export processing time in minutes
+a1b2c3d4-e5f6-7890-abcd-ef1234567005;rgpd.anonymization.cooldown.hours;72;integer;rgpd;Waiting period before anonymization is executed
+a1b2c3d4-e5f6-7890-abcd-ef1234567006;listing.price.default;15;decimal;listing;Default listing publication price in euros
+a1b2c3d4-e5f6-7890-abcd-ef1234567007;listing.photos.max;10;integer;listing;Maximum number of photos per listing
+a1b2c3d4-e5f6-7890-abcd-ef1234567008;listing.title.max.length;120;integer;listing;Maximum title length for listings
+a1b2c3d4-e5f6-7890-abcd-ef1234567009;listing.description.max.length;5000;integer;listing;Maximum description length for listings
+a1b2c3d4-e5f6-7890-abcd-ef1234567010;platform.name;AutoMarket;string;platform;Platform display name
+a1b2c3d4-e5f6-7890-abcd-ef1234567011;platform.support.email;support@automarket.fr;string;platform;Support email address
+a1b2c3d4-e5f6-7890-abcd-ef1234567012;platform.currency;EUR;string;platform;Platform currency code
+a1b2c3d4-e5f6-7890-abcd-ef1234567013;search.results.per.page;20;integer;search;Default results per page in search
+a1b2c3d4-e5f6-7890-abcd-ef1234567014;moderation.auto.flag.threshold;3;integer;moderation;Number of reports before auto-flagging

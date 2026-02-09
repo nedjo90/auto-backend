@@ -1,0 +1,8 @@
+ID;key;label;severity;active
+g0000001-0000-0000-0000-000000000001;spam;Spam ou contenu commercial non sollicite;low;true
+g0000001-0000-0000-0000-000000000002;fraud;Annonce frauduleuse ou arnaque;high;true
+g0000001-0000-0000-0000-000000000003;duplicate;Annonce en double;low;true
+g0000001-0000-0000-0000-000000000004;incorrect.info;Informations incorrectes ou trompeuses;medium;true
+g0000001-0000-0000-0000-000000000005;inappropriate;Contenu inapproprie ou offensant;medium;true
+g0000001-0000-0000-0000-000000000006;stolen.vehicle;Vehicule vole;critical;true
+g0000001-0000-0000-0000-000000000007;price.manipulation;Prix trompeur ou manipulation;medium;true

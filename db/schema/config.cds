@@ -1,10 +1,12 @@
 namespace auto;
 
-using {cuid} from '@sap/cds/common';
+using {cuid, managed} from '@sap/cds/common';
 using {auto.Role} from './rbac';
 
+// ─── Existing config entities (updated with managed aspect) ─────────────
+
 @assert.unique: {fieldName}
-entity ConfigRegistrationField : cuid {
+entity ConfigRegistrationField : cuid, managed {
   fieldName         : String(50);
   fieldType         : String(20);
   isRequired        : Boolean;
@@ -16,14 +18,16 @@ entity ConfigRegistrationField : cuid {
 }
 
 @assert.unique: {key}
-entity ConfigParameter : cuid {
+entity ConfigParameter : cuid, managed {
   key         : String(100);
   value       : String(500);
+  type        : String(20) default 'string';
+  category    : String(50);
   description : String(500);
 }
 
 @assert.unique: {code}
-entity ConfigFeature : cuid {
+entity ConfigFeature : cuid, managed {
   code         : String(50);
   name         : String(100);
   requiresAuth : Boolean default false;
@@ -32,11 +36,76 @@ entity ConfigFeature : cuid {
 }
 
 @assert.unique: {fieldName}
-entity ConfigProfileField : cuid {
+entity ConfigProfileField : cuid, managed {
   fieldName               : String(50);
   isVisibleToPublic       : Boolean default false;
   contributesToCompletion : Boolean default true;
   weight                  : Integer default 1;
   tipKey                  : String(200);
   displayOrder            : Integer;
+}
+
+// ─── New config entities (Story 2-1) ────────────────────────────────────
+
+@assert.unique: {key, language}
+entity ConfigText : cuid, managed {
+  key      : String(100);
+  language : String(5) default 'fr';
+  value    : LargeString;
+  category : String(50);
+}
+
+@assert.unique: {key}
+entity ConfigBoostFactor : cuid, managed {
+  key         : String(100);
+  factor      : Decimal(5, 2) default 1.0;
+  description : String(500);
+}
+
+@assert.unique: {key}
+entity ConfigVehicleType : cuid, managed {
+  key    : String(50);
+  label  : String(100);
+  active : Boolean default true;
+}
+
+@assert.unique: {key}
+entity ConfigListingDuration : cuid, managed {
+  key    : String(50);
+  days   : Integer;
+  label  : String(100);
+  active : Boolean default true;
+}
+
+@assert.unique: {key}
+entity ConfigReportReason : cuid, managed {
+  key      : String(100);
+  label    : String(200);
+  severity : String(20);
+  active   : Boolean default true;
+}
+
+@assert.unique: {key}
+entity ConfigChatAction : cuid, managed {
+  key    : String(100);
+  label  : String(200);
+  active : Boolean default true;
+}
+
+@assert.unique: {key}
+entity ConfigModerationRule : cuid, managed {
+  key       : String(100);
+  condition : String(500);
+  action    : String(100);
+  active    : Boolean default true;
+}
+
+@assert.unique: {key}
+entity ConfigApiProvider : cuid, managed {
+  key              : String(100);
+  adapterInterface : String(100);
+  status           : String(20) default 'inactive';
+  costPerCall      : Decimal(10, 4) default 0;
+  baseUrl          : String(500);
+  active           : Boolean default true;
 }

@@ -1,0 +1,7 @@
+ID;key;factor;description
+c0000001-0000-0000-0000-000000000001;photo.count.bonus;1.50;Boost for listings with 5+ photos
+c0000001-0000-0000-0000-000000000002;certification.bonus;2.00;Boost for certified vehicle listings
+c0000001-0000-0000-0000-000000000003;description.length.bonus;1.20;Boost for listings with detailed descriptions
+c0000001-0000-0000-0000-000000000004;price.competitiveness;1.30;Boost for competitively priced listings
+c0000001-0000-0000-0000-000000000005;seller.rating.bonus;1.40;Boost based on seller rating
+c0000001-0000-0000-0000-000000000006;freshness.decay;0.95;Daily decay factor for listing freshness

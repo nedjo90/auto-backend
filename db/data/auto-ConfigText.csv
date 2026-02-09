@@ -1,0 +1,9 @@
+ID;key;language;value;category
+b0000001-0000-0000-0000-000000000001;home.hero.title;fr;Trouvez votre vehicule certifie;homepage
+b0000001-0000-0000-0000-000000000002;home.hero.subtitle;fr;La plateforme de confiance pour acheter et vendre des vehicules d'occasion;homepage
+b0000001-0000-0000-0000-000000000003;listing.create.cta;fr;Deposer une annonce;listing
+b0000001-0000-0000-0000-000000000004;footer.legal.notice;fr;AutoMarket - Tous droits reserves;legal
+b0000001-0000-0000-0000-000000000005;email.welcome.subject;fr;Bienvenue sur AutoMarket;email
+b0000001-0000-0000-0000-000000000006;email.welcome.body;fr;Bonjour {firstName}, bienvenue sur AutoMarket !;email
+b0000001-0000-0000-0000-000000000007;consent.gdpr.title;fr;Protection de vos donnees;consent
+b0000001-0000-0000-0000-000000000008;error.generic;fr;Une erreur est survenue. Veuillez reessayer.;error

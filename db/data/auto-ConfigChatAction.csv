@@ -1,0 +1,6 @@
+ID;key;label;active
+h0000001-0000-0000-0000-000000000001;make.offer;Faire une offre;true
+h0000001-0000-0000-0000-000000000002;request.info;Demander des informations;true
+h0000001-0000-0000-0000-000000000003;schedule.visit;Planifier une visite;true
+h0000001-0000-0000-0000-000000000004;report.user;Signaler l'utilisateur;true
+h0000001-0000-0000-0000-000000000005;block.user;Bloquer l'utilisateur;true

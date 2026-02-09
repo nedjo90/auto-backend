@@ -6,8 +6,8 @@ const rootDir = path.resolve(__dirname, "../..");
 describe("CDS Schema - ConfigRegistrationField (Task 1.1)", () => {
   const configCds = fs.readFileSync(path.join(rootDir, "db/schema/config.cds"), "utf-8");
 
-  it("should define ConfigRegistrationField entity with cuid aspect", () => {
-    expect(configCds).toContain("entity ConfigRegistrationField : cuid");
+  it("should define ConfigRegistrationField entity with cuid and managed aspects", () => {
+    expect(configCds).toContain("entity ConfigRegistrationField : cuid, managed");
   });
 
   it("should have all required fields", () => {

@@ -1,0 +1,8 @@
+ID;key;adapterInterface;status;costPerCall;baseUrl;active
+j0000001-0000-0000-0000-000000000001;siv;IVehicleDataAdapter;active;0.0500;https://api.siv.gouv.fr;true
+j0000001-0000-0000-0000-000000000002;histovec;IVehicleHistoryAdapter;active;0.0000;https://histovec.interieur.gouv.fr/api;true
+j0000001-0000-0000-0000-000000000003;argus;IMarketPriceAdapter;active;0.1000;https://api.largus.fr;true
+j0000001-0000-0000-0000-000000000004;azure.blob;IBlobStorageAdapter;active;0.0001;https://automarket.blob.core.windows.net;true
+j0000001-0000-0000-0000-000000000005;azure.adb2c;IIdentityProviderAdapter;active;0.0000;https://automarket.b2clogin.com;true
+j0000001-0000-0000-0000-000000000006;stripe;IPaymentAdapter;inactive;0.0250;https://api.stripe.com;false
+j0000001-0000-0000-0000-000000000007;signalr;IRealtimeAdapter;active;0.0000;https://automarket.service.signalr.net;true

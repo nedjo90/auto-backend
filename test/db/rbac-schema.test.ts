@@ -98,8 +98,8 @@ describe("CDS Schema - RolePermission (Task 1.4)", () => {
 describe("CDS Schema - ConfigFeature (Task 1.5)", () => {
   const configCds = fs.readFileSync(path.join(rootDir, "db/schema/config.cds"), "utf-8");
 
-  it("should define ConfigFeature entity with cuid aspect", () => {
-    expect(configCds).toContain("entity ConfigFeature : cuid");
+  it("should define ConfigFeature entity with cuid and managed aspects", () => {
+    expect(configCds).toContain("entity ConfigFeature : cuid, managed");
   });
 
   it("should enforce unique code constraint on ConfigFeature", () => {
@@ -107,7 +107,7 @@ describe("CDS Schema - ConfigFeature (Task 1.5)", () => {
   });
 
   it("should have all required ConfigFeature fields", () => {
-    const featureBlock = configCds.match(/entity ConfigFeature : cuid \{[\s\S]*?\}/);
+    const featureBlock = configCds.match(/entity ConfigFeature : cuid, managed \{[\s\S]*?\}/);
     expect(featureBlock).not.toBeNull();
     const block = featureBlock![0];
     expect(block).toContain("code");
