@@ -3,6 +3,8 @@ import { profileUpdateInputSchema, validateSirenLuhn } from "@auto/shared";
 import type { IIdentityProviderAdapter } from "../adapters/interfaces/identity-provider.interface";
 import { getIdentityProvider } from "../adapters/factory/adapter-factory";
 
+const LOG = cds.log("profile");
+
 export type ProfileCompletionBadge = "complete" | "advanced" | "intermediate" | "new_seller";
 
 /**
@@ -75,7 +77,7 @@ export default class ProfileService extends cds.ApplicationService {
     try {
       this.identityProvider = getIdentityProvider();
     } catch {
-      // Identity provider not configured — profile updates won't sync to AD B2C
+      LOG.warn("Identity provider not configured, profile sync disabled");
     }
 
     this.on("READ", "UserProfiles", this.getUserProfile);
@@ -122,18 +124,15 @@ export default class ProfileService extends cds.ApplicationService {
       return req.reject(400, messages);
     }
 
-    // Additional SIRET validation with Luhn check
-    if (parsed.data.siret && parsed.data.siret !== "") {
-      if (!validateSiret(parsed.data.siret)) {
-        return req.reject(400, "Le numéro SIRET est invalide");
-      }
-    }
-
     const { User, SellerRating, ConfigProfileField } = cds.entities("auto");
 
     // Find user by Azure AD B2C ID
     const user = await cds.run(SELECT.one.from(User).where({ azureAdB2cId: userId }));
     if (!user) return req.reject(404, "User not found");
+
+    // Block suspended/anonymized users
+    if (user.status !== "active") return req.reject(403, "Account is not active");
+    if (user.isAnonymized) return req.reject(403, "Account is anonymized");
 
     // Build update data — only include fields that were provided
     const updateData: Record<string, unknown> = {};
@@ -202,16 +201,13 @@ export default class ProfileService extends cds.ApplicationService {
   };
 
   private getProfileCompletion = async (req: cds.Request) => {
-    const targetUserId = req.data.userId;
     const requestingUserId = req.user?.id;
     if (!requestingUserId) return req.reject(401, "Authentication required");
 
     const { User, ConfigProfileField } = cds.entities("auto");
 
-    const user = targetUserId
-      ? await cds.run(SELECT.one.from(User).where({ ID: targetUserId }))
-      : await cds.run(SELECT.one.from(User).where({ azureAdB2cId: requestingUserId }));
-
+    // Always fetch the requesting user's own profile (no cross-user access)
+    const user = await cds.run(SELECT.one.from(User).where({ azureAdB2cId: requestingUserId }));
     if (!user) return req.reject(404, "User not found");
 
     const configFields = await cds.run(
@@ -230,7 +226,8 @@ export default class ProfileService extends cds.ApplicationService {
     const seller = await cds.run(SELECT.one.from(User).where({ ID: sellerId }));
     if (!seller) return req.reject(404, "Seller not found");
 
-    // Anonymized seller
+    // Suspended or anonymized seller
+    if (seller.status === "suspended") return req.reject(404, "Seller not found");
     if (seller.isAnonymized) {
       return {
         userId: seller.ID,
@@ -256,7 +253,10 @@ export default class ProfileService extends cds.ApplicationService {
 
     return {
       userId: seller.ID,
-      displayName: seller.displayName || `${seller.firstName} ${seller.lastName}`,
+      displayName:
+        seller.displayName ||
+        [seller.firstName, seller.lastName].filter(Boolean).join(" ") ||
+        "Utilisateur",
       avatarUrl: seller.avatarUrl || null,
       bio: seller.bio || null,
       rating: rating?.overallRating || 0,

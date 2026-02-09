@@ -148,6 +148,7 @@ jest.mock("@sap/cds", () => {
     on = jest.fn();
     async init() {}
   }
+  const mockLog = { warn: jest.fn(), info: jest.fn(), error: jest.fn(), debug: jest.fn() };
   return {
     __esModule: true,
     default: {
@@ -158,6 +159,7 @@ jest.mock("@sap/cds", () => {
         ConfigProfileField: "ConfigProfileField",
       })),
       run: jest.fn(),
+      log: jest.fn(() => mockLog),
       utils: { uuid: jest.fn(() => "test-uuid-456") },
     },
   };
@@ -175,6 +177,7 @@ const mockRun = cds.run as jest.Mock;
     columns: jest.fn().mockReturnValue({
       where: jest.fn().mockReturnValue("select-columns-query"),
     }),
+    orderBy: jest.fn().mockReturnValue("select-ordered-query"),
   }),
   one: {
     from: jest.fn().mockReturnValue({
@@ -245,7 +248,13 @@ describe("ProfileService handler", () => {
 
     it("should update profile successfully", async () => {
       mockRun
-        .mockResolvedValueOnce({ ID: "user-1", azureAdB2cId: "azure-user-id", firstName: "John" }) // find user
+        .mockResolvedValueOnce({
+          ID: "user-1",
+          azureAdB2cId: "azure-user-id",
+          firstName: "John",
+          status: "active",
+          isAnonymized: false,
+        }) // find user
         .mockResolvedValueOnce(undefined) // UPDATE user
         .mockResolvedValueOnce({ ID: "user-1", firstName: "John", phone: "+33612345678" }) // re-fetch user
         .mockResolvedValueOnce([
@@ -281,16 +290,100 @@ describe("ProfileService handler", () => {
     });
 
     it("should reject invalid SIRET", async () => {
-      const req = mockReq({ siret: "12345678901234" }); // fails Luhn
-      mockRun.mockResolvedValueOnce({ ID: "user-1", azureAdB2cId: "azure-user-id" });
+      const req = mockReq({ siret: "12345678901234" }); // fails Luhn via Zod schema
 
       const handler = registeredHandlers["updateProfile"];
       await expect(handler(req)).rejects.toThrow();
     });
 
+    it("should reject when user not found", async () => {
+      mockRun.mockResolvedValueOnce(null);
+
+      const req = mockReq({ phone: "+33612345678" });
+      const handler = registeredHandlers["updateProfile"];
+      await expect(handler(req)).rejects.toThrow("User not found");
+    });
+
+    it("should reject when user is suspended", async () => {
+      mockRun.mockResolvedValueOnce({
+        ID: "user-1",
+        azureAdB2cId: "azure-user-id",
+        status: "suspended",
+        isAnonymized: false,
+      });
+
+      const req = mockReq({ phone: "+33612345678" });
+      const handler = registeredHandlers["updateProfile"];
+      await expect(handler(req)).rejects.toThrow("Account is not active");
+    });
+
+    it("should reject when user is anonymized", async () => {
+      mockRun.mockResolvedValueOnce({
+        ID: "user-1",
+        azureAdB2cId: "azure-user-id",
+        status: "active",
+        isAnonymized: true,
+      });
+
+      const req = mockReq({ phone: "+33612345678" });
+      const handler = registeredHandlers["updateProfile"];
+      await expect(handler(req)).rejects.toThrow("Account is anonymized");
+    });
+
+    it("should convert empty string values to null", async () => {
+      mockRun
+        .mockResolvedValueOnce({
+          ID: "user-1",
+          azureAdB2cId: "azure-user-id",
+          status: "active",
+          isAnonymized: false,
+        })
+        .mockResolvedValueOnce(undefined)
+        .mockResolvedValueOnce({ ID: "user-1" })
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(undefined);
+
+      const req = mockReq({ phone: "" });
+      const handler = registeredHandlers["updateProfile"];
+      await handler(req);
+
+      // The UPDATE call is the 2nd cds.run call
+      expect(mockRun).toHaveBeenCalledTimes(6);
+    });
+
+    it("should update existing SellerRating instead of inserting", async () => {
+      mockRun
+        .mockResolvedValueOnce({
+          ID: "user-1",
+          azureAdB2cId: "azure-user-id",
+          firstName: "John",
+          status: "active",
+          isAnonymized: false,
+        })
+        .mockResolvedValueOnce(undefined) // UPDATE user
+        .mockResolvedValueOnce({ ID: "user-1", firstName: "John", phone: "+33612345678" })
+        .mockResolvedValueOnce([
+          { fieldName: "firstName", contributesToCompletion: true, weight: 2, tipKey: null },
+        ])
+        .mockResolvedValueOnce({ ID: "rating-1", user_ID: "user-1" }) // existing rating
+        .mockResolvedValueOnce(undefined); // UPDATE rating
+
+      const req = mockReq({ phone: "+33612345678" });
+      const handler = registeredHandlers["updateProfile"];
+      const result = await handler(req);
+
+      expect(result).toEqual({ success: true, userId: "user-1" });
+    });
+
     it("should sync display name to AD B2C", async () => {
       mockRun
-        .mockResolvedValueOnce({ ID: "user-1", azureAdB2cId: "azure-user-id" })
+        .mockResolvedValueOnce({
+          ID: "user-1",
+          azureAdB2cId: "azure-user-id",
+          status: "active",
+          isAnonymized: false,
+        })
         .mockResolvedValueOnce(undefined)
         .mockResolvedValueOnce({ ID: "user-1", displayName: "New Name" })
         .mockResolvedValueOnce([])
@@ -308,7 +401,12 @@ describe("ProfileService handler", () => {
 
     it("should not block profile save if AD B2C sync fails", async () => {
       mockRun
-        .mockResolvedValueOnce({ ID: "user-1", azureAdB2cId: "azure-user-id" })
+        .mockResolvedValueOnce({
+          ID: "user-1",
+          azureAdB2cId: "azure-user-id",
+          status: "active",
+          isAnonymized: false,
+        })
         .mockResolvedValueOnce(undefined)
         .mockResolvedValueOnce({ ID: "user-1", displayName: "New Name" })
         .mockResolvedValueOnce([])
@@ -325,13 +423,73 @@ describe("ProfileService handler", () => {
     });
 
     it("should return success without DB update when no fields provided", async () => {
-      mockRun.mockResolvedValueOnce({ ID: "user-1", azureAdB2cId: "azure-user-id" });
+      mockRun.mockResolvedValueOnce({
+        ID: "user-1",
+        azureAdB2cId: "azure-user-id",
+        status: "active",
+        isAnonymized: false,
+      });
 
       const req = mockReq({});
       const handler = registeredHandlers["updateProfile"];
       const result = await handler(req);
 
       expect(result).toEqual({ success: true, userId: "user-1" });
+    });
+  });
+
+  describe("getUserProfile (READ:UserProfiles)", () => {
+    it("should return user data for authenticated user", async () => {
+      mockRun.mockResolvedValueOnce([{ ID: "user-1", email: "test@test.com" }]);
+
+      const req = {
+        user: { id: "azure-user-id" },
+        reject: jest.fn((code: number, msg: string) => {
+          throw new Error(msg);
+        }),
+      };
+      const handler = registeredHandlers["READ:UserProfiles"];
+      const result = await handler(req);
+
+      expect(result).toEqual([{ ID: "user-1", email: "test@test.com" }]);
+    });
+
+    it("should reject unauthenticated request", async () => {
+      const req = {
+        user: {},
+        reject: jest.fn((code: number, msg: string) => {
+          throw new Error(msg);
+        }),
+      };
+      const handler = registeredHandlers["READ:UserProfiles"];
+      await expect(handler(req)).rejects.toThrow("Authentication required");
+    });
+  });
+
+  describe("getPublicSellerProfiles (READ:PublicSellerProfiles)", () => {
+    it("should return only active non-anonymized users", async () => {
+      mockRun.mockResolvedValueOnce([
+        { ID: "seller-1", displayName: "Marie D.", status: "active", isAnonymized: false },
+      ]);
+
+      const handler = registeredHandlers["READ:PublicSellerProfiles"];
+      const result = await handler({});
+
+      expect(result).toHaveLength(1);
+    });
+  });
+
+  describe("getConfigProfileFields (READ:ConfigProfileFields)", () => {
+    it("should return config fields ordered by displayOrder", async () => {
+      mockRun.mockResolvedValueOnce([
+        { ID: "1", fieldName: "firstName", displayOrder: 1 },
+        { ID: "2", fieldName: "phone", displayOrder: 2 },
+      ]);
+
+      const handler = registeredHandlers["READ:ConfigProfileFields"];
+      const result = await handler({});
+
+      expect(result).toHaveLength(2);
     });
   });
 
@@ -373,6 +531,7 @@ describe("ProfileService handler", () => {
           avatarUrl: null,
           bio: "Vendeuse pro",
           isAnonymized: false,
+          status: "active",
           accountCreatedAt: "2024-01-15T00:00:00Z",
           createdAt: "2024-01-15T00:00:00Z",
         }) // seller
@@ -446,6 +605,24 @@ describe("ProfileService handler", () => {
       await expect(handler(req)).rejects.toThrow("Seller not found");
     });
 
+    it("should reject suspended seller", async () => {
+      mockRun.mockResolvedValueOnce({
+        ID: "seller-4",
+        status: "suspended",
+        isAnonymized: false,
+      });
+
+      const req = {
+        data: { sellerId: "seller-4" },
+        user: { id: "any-user" },
+        reject: jest.fn((code: number, msg: string) => {
+          throw new Error(msg);
+        }),
+      };
+      const handler = registeredHandlers["getPublicSellerProfile"];
+      await expect(handler(req)).rejects.toThrow("Seller not found");
+    });
+
     it("should use computed display name when displayName is empty", async () => {
       mockRun
         .mockResolvedValueOnce({
@@ -454,6 +631,7 @@ describe("ProfileService handler", () => {
           lastName: "Martin",
           displayName: null,
           isAnonymized: false,
+          status: "active",
           accountCreatedAt: "2024-06-01T00:00:00Z",
           createdAt: "2024-06-01T00:00:00Z",
         })
@@ -469,6 +647,32 @@ describe("ProfileService handler", () => {
       const result = await handler(req);
 
       expect(result.displayName).toBe("Jean Martin");
+    });
+
+    it("should fallback to 'Utilisateur' when displayName and names are null", async () => {
+      mockRun
+        .mockResolvedValueOnce({
+          ID: "seller-5",
+          firstName: null,
+          lastName: null,
+          displayName: null,
+          isAnonymized: false,
+          status: "active",
+          accountCreatedAt: "2024-06-01T00:00:00Z",
+          createdAt: "2024-06-01T00:00:00Z",
+        })
+        .mockResolvedValueOnce(null) // no rating
+        .mockResolvedValueOnce([]); // no config fields
+
+      const req = {
+        data: { sellerId: "seller-5" },
+        user: { id: "any-user" },
+        reject: jest.fn(),
+      };
+      const handler = registeredHandlers["getPublicSellerProfile"];
+      const result = await handler(req);
+
+      expect(result.displayName).toBe("Utilisateur");
     });
   });
 });

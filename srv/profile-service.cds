@@ -3,7 +3,7 @@ using {auto} from '../db/schema';
 @path    : '/api/profile'
 @requires: 'authenticated-user'
 service ProfileService {
-  entity UserProfiles as projection on auto.User;
+  @readonly entity UserProfiles as projection on auto.User;
   @readonly entity PublicSellerProfiles as projection on auto.User;
   @readonly entity ConfigProfileFields as projection on auto.ConfigProfileField;
 
@@ -49,7 +49,7 @@ service ProfileService {
   }
 
   action updateProfile(input : ProfileUpdateInput) returns ProfileResult;
-  function getProfileCompletion(userId : UUID) returns ProfileCompletionResult;
+  function getProfileCompletion() returns ProfileCompletionResult;
 
   @requires: 'any'
   function getPublicSellerProfile(sellerId : UUID) returns PublicSellerProfileResult;
