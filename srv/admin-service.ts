@@ -29,7 +29,7 @@ export default class AdminServiceHandler extends cds.ApplicationService {
       this.before(["UPDATE", "DELETE"], entity, this.captureOldValue);
     }
 
-    // Register AFTER handlers for cache invalidation + audit logging
+    // Register AFTER handlers for audit logging + deferred cache refresh
     for (const entity of CONFIG_ENTITIES) {
       this.after(["CREATE", "UPDATE", "DELETE"], entity, this.onConfigMutation.bind(this, entity));
     }
@@ -39,6 +39,8 @@ export default class AdminServiceHandler extends cds.ApplicationService {
 
   /**
    * BEFORE handler: capture old values for UPDATE/DELETE audit trail.
+   * F6 fix: Uses the CDS service layer (not raw cds.run) to read within
+   * the current request context.
    */
   private captureOldValue = async (req: cds.Request) => {
     if (!req.data?.ID) return;
@@ -58,19 +60,24 @@ export default class AdminServiceHandler extends cds.ApplicationService {
   };
 
   /**
-   * AFTER handler: invalidate cache + log audit for CREATE/UPDATE/DELETE.
+   * AFTER handler: log audit + schedule cache refresh after commit.
+   * F2 fix: Cache refresh is deferred to after the transaction commits,
+   * ensuring the SELECT reads committed data. The audit log is written
+   * immediately since it uses the data already available in the handler.
    */
   private onConfigMutation = async (projectionName: string, data: unknown, req: cds.Request) => {
     const tableName = ENTITY_TABLE_MAP[projectionName];
     if (!tableName) return;
 
-    // Invalidate cache for the affected table
-    try {
-      configCache.invalidate(tableName);
-      await configCache.refreshTable(tableName);
-    } catch (err) {
-      LOG.error(`Failed to refresh cache for ${tableName}:`, err);
-    }
+    // Defer cache refresh to after transaction commits (F2 fix)
+    // This ensures the SELECT in refreshTable reads committed data
+    req.on?.("succeeded", async () => {
+      try {
+        await configCache.refreshTable(tableName);
+      } catch (err) {
+        LOG.error(`Failed to refresh cache for ${tableName}:`, err);
+      }
+    });
 
     // Determine action type
     const event = req.event;

@@ -171,13 +171,69 @@ describe("InMemoryConfigCache", () => {
     expect(feature?.name).toBe("Favorites");
   });
 
-  it("should handle errors gracefully during refresh", async () => {
+  it("should use composite key (key:language) for ConfigText", async () => {
+    // ConfigParameter
+    mockRun.mockResolvedValueOnce([]);
+    // ConfigText - two rows with same key but different languages
+    mockRun.mockResolvedValueOnce([
+      { ID: "t1", key: "home.title", language: "fr", value: "Bienvenue" },
+      { ID: "t2", key: "home.title", language: "en", value: "Welcome" },
+    ]);
+    // Remaining 10 tables
+    for (let i = 0; i < 10; i++) {
+      mockRun.mockResolvedValueOnce([]);
+    }
+
+    await configCache.refresh();
+
+    // Both language variants must be accessible
+    const fr = configCache.get<{ value: string }>("ConfigText", "home.title:fr");
+    expect(fr?.value).toBe("Bienvenue");
+
+    const en = configCache.get<{ value: string }>("ConfigText", "home.title:en");
+    expect(en?.value).toBe("Welcome");
+
+    // All rows should be in the list
+    const allTexts = configCache.getAll("ConfigText");
+    expect(allTexts).toHaveLength(2);
+  });
+
+  it("should NOT mark cache as ready when ALL tables fail to load (F5)", async () => {
     mockRun.mockRejectedValue(new Error("DB connection failed"));
     await configCache.refresh();
 
-    // Should still be ready (errors are caught per-table)
-    expect(configCache.isReady()).toBe(true);
+    // Cache should NOT be ready when all tables fail
+    expect(configCache.isReady()).toBe(false);
     expect(configCache.getAll("ConfigParameter")).toEqual([]);
+  });
+
+  it("should mark cache as ready when at least some tables succeed", async () => {
+    // First table succeeds
+    mockRun.mockResolvedValueOnce([]);
+    // Rest fail
+    for (let i = 0; i < 11; i++) {
+      mockRun.mockRejectedValueOnce(new Error("DB error"));
+    }
+    await configCache.refresh();
+    expect(configCache.isReady()).toBe(true);
+  });
+
+  it("should atomically swap table data during refreshTable (F4)", async () => {
+    // Initial load
+    mockRun.mockResolvedValue([]);
+    await configCache.refresh();
+    mockRun.mockClear();
+
+    // Load initial data for ConfigParameter
+    mockRun.mockResolvedValueOnce([{ ID: "p1", key: "old", value: "1" }]);
+    await configCache.refreshTable("ConfigParameter");
+    expect(configCache.get("ConfigParameter", "old")).toBeDefined();
+
+    // Refresh with new data - old data should be replaced atomically
+    mockRun.mockResolvedValueOnce([{ ID: "p2", key: "new", value: "2" }]);
+    await configCache.refreshTable("ConfigParameter");
+    expect(configCache.get("ConfigParameter", "new")).toBeDefined();
+    expect(configCache.get("ConfigParameter", "old")).toBeUndefined();
   });
 
   it("should be a singleton (same reference on re-import)", async () => {

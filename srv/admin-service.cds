@@ -1,7 +1,7 @@
 using {auto} from '../db/schema';
 
 @path    : '/api/admin'
-@requires: 'admin'
+@requires: 'administrator'
 service AdminService {
   entity ConfigParameters       as projection on auto.ConfigParameter;
   entity ConfigTexts            as projection on auto.ConfigText;

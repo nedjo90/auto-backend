@@ -46,12 +46,14 @@ const CONFIG_TABLES = [
 ] as const;
 
 /**
- * Map from table name to the field used as the lookup key.
+ * Map from table name to the field(s) used as the lookup key.
  * Most tables use 'key', but some use 'code' or 'fieldName'.
+ * ConfigText uses a composite key ['key', 'language'] since the same key
+ * can have multiple language variants.
  */
-const KEY_FIELD_MAP: Record<string, string> = {
+const KEY_FIELD_MAP: Record<string, string | string[]> = {
   ConfigParameter: "key",
-  ConfigText: "key",
+  ConfigText: ["key", "language"],
   ConfigFeature: "code",
   ConfigBoostFactor: "key",
   ConfigVehicleType: "key",
@@ -78,6 +80,7 @@ class InMemoryConfigCache implements IConfigCache {
   private cache: Map<string, Map<string, unknown>> = new Map();
   private lists: Map<string, unknown[]> = new Map();
   private ready = false;
+  private loadedCount = 0;
 
   get<T>(table: string, key: string): T | undefined {
     const tableCache = this.cache.get(table);
@@ -97,44 +100,77 @@ class InMemoryConfigCache implements IConfigCache {
       this.cache.clear();
       this.lists.clear();
       this.ready = false;
+      this.loadedCount = 0;
     }
   }
 
   async refresh(): Promise<void> {
+    let successCount = 0;
     for (const table of CONFIG_TABLES) {
-      await this.refreshTable(table);
+      const ok = await this.loadTable(table);
+      if (ok) successCount++;
     }
-    this.ready = true;
-    LOG.info(`Config cache loaded: ${CONFIG_TABLES.length} tables`);
+    this.loadedCount = successCount;
+    // Only mark ready if at least one table loaded successfully
+    this.ready = successCount > 0;
+    LOG.info(`Config cache loaded: ${successCount}/${CONFIG_TABLES.length} tables`);
   }
 
   async refreshTable(table: string): Promise<void> {
+    await this.loadTable(table);
+  }
+
+  /**
+   * Build a cache key from a row based on the key field config.
+   * Supports composite keys (e.g., ConfigText uses key+language).
+   */
+  private buildCacheKey(
+    row: Record<string, unknown>,
+    keyFieldDef: string | string[],
+  ): string | null {
+    if (Array.isArray(keyFieldDef)) {
+      const parts = keyFieldDef.map((f) => String(row[f] ?? ""));
+      if (parts.some((p) => !p)) return null;
+      return parts.join(":");
+    }
+    const val = row[keyFieldDef];
+    return val ? String(val) : null;
+  }
+
+  /**
+   * Load a single table into cache. Builds the new Map first, then
+   * swaps it in atomically (F4: avoids undefined window during refresh).
+   */
+  private async loadTable(table: string): Promise<boolean> {
     try {
       const entities = cds.entities("auto");
       const entity = entities[table];
       if (!entity) {
         LOG.warn(`Config entity ${table} not found, skipping cache load`);
-        return;
+        return false;
       }
 
       const rows = await cds.run(SELECT.from(entity));
-      const keyField = KEY_FIELD_MAP[table] || "key";
+      const keyFieldDef = KEY_FIELD_MAP[table] || "key";
 
-      // Build indexed map
-      const tableMap = new Map<string, unknown>();
-      const list: unknown[] = [];
+      // Build new map first, then swap atomically
+      const newTableMap = new Map<string, unknown>();
+      const newList: unknown[] = [];
       for (const row of rows || []) {
-        const keyValue = row[keyField];
-        if (keyValue) {
-          tableMap.set(String(keyValue), row);
+        const cacheKey = this.buildCacheKey(row as Record<string, unknown>, keyFieldDef);
+        if (cacheKey) {
+          newTableMap.set(cacheKey, row);
         }
-        list.push(row);
+        newList.push(row);
       }
 
-      this.cache.set(table, tableMap);
-      this.lists.set(table, list);
+      // Atomic swap - no window where cache is empty
+      this.cache.set(table, newTableMap);
+      this.lists.set(table, newList);
+      return true;
     } catch (err) {
       LOG.error(`Failed to load config table ${table}:`, err);
+      return false;
     }
   }
 

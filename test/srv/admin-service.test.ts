@@ -167,21 +167,33 @@ describe("AdminServiceHandler", () => {
   });
 
   describe("onConfigMutation (AFTER handler)", () => {
-    it("should invalidate and refresh cache on CREATE", async () => {
+    it("should register deferred cache refresh and log audit on CREATE", async () => {
       const handlers = registeredAfterHandlers.get("CREATE:ConfigParameters");
       expect(handlers).toBeDefined();
 
+      let succeededCallback: Function | undefined;
       const newData = { ID: "p-new", key: "new.param", value: "42" };
       const req: any = {
         event: "CREATE",
         data: { ID: "p-new" },
         user: { id: "admin-user" },
+        on: jest.fn((event: string, cb: Function) => {
+          if (event === "succeeded") succeededCallback = cb;
+        }),
       };
 
       await handlers![0](newData, req);
 
-      expect(mockInvalidate).toHaveBeenCalledWith("ConfigParameter");
+      // Cache refresh should be deferred, not called immediately
+      expect(mockRefreshTable).not.toHaveBeenCalled();
+      expect(req.on).toHaveBeenCalledWith("succeeded", expect.any(Function));
+
+      // Simulate transaction commit
+      expect(succeededCallback).toBeDefined();
+      await succeededCallback!();
       expect(mockRefreshTable).toHaveBeenCalledWith("ConfigParameter");
+
+      // Audit should still be logged in the AFTER handler
       expect(mockLogAudit).toHaveBeenCalledWith(
         expect.objectContaining({
           userId: "admin-user",
@@ -199,6 +211,7 @@ describe("AdminServiceHandler", () => {
         data: { ID: "p1" },
         user: { id: "admin-user" },
         _oldValue: { ID: "p1", key: "test", value: "old" },
+        on: jest.fn(),
       };
 
       await handlers![0](newData, req);
@@ -222,6 +235,7 @@ describe("AdminServiceHandler", () => {
         data: { ID: "p1" },
         user: { id: "admin-user" },
         _oldValue: { ID: "p1", key: "deleted.param" },
+        on: jest.fn(),
       };
 
       await handlers![0](undefined, req);
@@ -240,6 +254,7 @@ describe("AdminServiceHandler", () => {
         event: "CREATE",
         data: { ID: "p1" },
         user: {},
+        on: jest.fn(),
       };
 
       await handlers![0]({}, req);
@@ -251,20 +266,43 @@ describe("AdminServiceHandler", () => {
       );
     });
 
-    it("should handle cache refresh errors gracefully", async () => {
+    it("should handle cache refresh errors gracefully in succeeded callback", async () => {
       mockRefreshTable.mockRejectedValueOnce(new Error("Cache error"));
 
+      let succeededCallback: Function | undefined;
       const handlers = registeredAfterHandlers.get("CREATE:ConfigParameters");
       const req: any = {
         event: "CREATE",
         data: { ID: "p1" },
         user: { id: "admin" },
+        on: jest.fn((event: string, cb: Function) => {
+          if (event === "succeeded") succeededCallback = cb;
+        }),
+      };
+
+      // AFTER handler should not throw
+      await handlers![0]({}, req);
+
+      // Simulate transaction commit - error should be caught
+      await succeededCallback!();
+
+      // Audit should still be logged even if cache refresh would fail
+      expect(mockLogAudit).toHaveBeenCalled();
+    });
+
+    it("should work when req.on is not available (graceful degradation)", async () => {
+      const handlers = registeredAfterHandlers.get("CREATE:ConfigParameters");
+      const req: any = {
+        event: "CREATE",
+        data: { ID: "p1" },
+        user: { id: "admin" },
+        // No `on` method - simulates older CAP or test environment
       };
 
       // Should not throw
       await handlers![0]({}, req);
 
-      // Audit should still be logged even if cache refresh fails
+      // Audit should still be logged
       expect(mockLogAudit).toHaveBeenCalled();
     });
   });
