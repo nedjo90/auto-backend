@@ -1,18 +1,20 @@
 import cds from "@sap/cds";
+import crypto from "crypto";
 import { ANONYMIZATION_FIELDS } from "@auto/shared";
 import type { IIdentityProviderAdapter } from "../adapters/interfaces/identity-provider.interface";
 import type { IBlobStorageAdapter } from "../adapters/interfaces/blob-storage.interface";
 import { getIdentityProvider } from "../adapters/factory/adapter-factory";
 import { getBlobStorage } from "../adapters/factory/adapter-factory";
+import { logAudit } from "../lib/audit-logger";
 
 const LOG = cds.log("rgpd");
 const EXPORT_CONTAINER = "rgpd-exports";
 
 /**
- * Generates a random 6-digit confirmation code.
+ * Generates a cryptographically random 6-digit confirmation code.
  */
 export function generateConfirmationCode(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  return String(crypto.randomInt(100000, 999999));
 }
 
 /**
@@ -25,9 +27,15 @@ export async function collectUserData(
   const { User, UserConsent, AuditLog } = entities as Record<string, string>;
   const sections: Array<{ section: string; data: unknown }> = [];
 
-  // Profile data
+  // Profile data (exclude internal identifiers)
   const user = await cds.run(SELECT.one.from(User).where({ ID: userId }));
-  sections.push({ section: "profile", data: user || {} });
+  if (user) {
+    const { azureAdB2cId: _excluded, ...safeProfile } = user;
+    void _excluded;
+    sections.push({ section: "profile", data: safeProfile });
+  } else {
+    sections.push({ section: "profile", data: {} });
+  }
 
   // Consent records
   const consents = await cds.run(SELECT.from(UserConsent).where({ user_ID: userId }));
@@ -98,7 +106,7 @@ export default class RgpdService extends cds.ApplicationService {
     const azureUserId = req.user?.id;
     if (!azureUserId) return req.reject(401, "Authentication required");
 
-    const { User, DataExportRequest, AuditLog } = cds.entities("auto");
+    const { User, DataExportRequest } = cds.entities("auto");
 
     const user = await cds.run(SELECT.one.from(User).where({ azureAdB2cId: azureUserId }));
     if (!user) return req.reject(404, "User not found");
@@ -130,20 +138,22 @@ export default class RgpdService extends cds.ApplicationService {
     );
 
     // Log in audit trail
-    await cds.run(
-      INSERT.into(AuditLog).entries({
-        ID: cds.utils.uuid(),
-        userId: user.ID,
-        action: "DATA_EXPORT_REQUESTED",
-        resource: "DataExportRequest",
-        details: JSON.stringify({ requestId }),
-        timestamp: now,
-      }),
-    );
+    await logAudit({
+      userId: user.ID,
+      action: "DATA_EXPORT_REQUESTED",
+      resource: "DataExportRequest",
+      details: JSON.stringify({ requestId }),
+    });
 
     // Trigger async export generation
-    this.generateDataExport(requestId, user.ID).catch((err) => {
+    this.generateDataExport(requestId, user.ID).catch(async (err) => {
       LOG.error("Export generation failed:", err);
+      try {
+        const { DataExportRequest: DER } = cds.entities("auto");
+        await cds.run(UPDATE(DER).set({ status: "failed" }).where({ ID: requestId }));
+      } catch (updateErr) {
+        LOG.error("Failed to update export status to failed:", updateErr);
+      }
     });
 
     return {
@@ -265,7 +275,7 @@ export default class RgpdService extends cds.ApplicationService {
     const azureUserId = req.user?.id;
     if (!azureUserId) return req.reject(401, "Authentication required");
 
-    const { User, AnonymizationRequest, AuditLog } = cds.entities("auto");
+    const { User, AnonymizationRequest } = cds.entities("auto");
 
     const user = await cds.run(SELECT.one.from(User).where({ azureAdB2cId: azureUserId }));
     if (!user) return req.reject(404, "User not found");
@@ -279,9 +289,11 @@ export default class RgpdService extends cds.ApplicationService {
         .where({ user_ID: user.ID, status: { in: ["requested", "confirmed"] } }),
     );
     if (existingReq) {
+      const storedData = JSON.parse(existingReq.anonymizedFields || "{}");
       return {
         requestId: existingReq.ID,
         status: existingReq.status,
+        confirmationCode: storedData.confirmationCode || "",
         message: "Une demande d'anonymisation est déjà en cours",
       };
     }
@@ -301,20 +313,17 @@ export default class RgpdService extends cds.ApplicationService {
     );
 
     // Log in audit trail
-    await cds.run(
-      INSERT.into(AuditLog).entries({
-        ID: cds.utils.uuid(),
-        userId: user.ID,
-        action: "ANONYMIZATION_REQUESTED",
-        resource: "AnonymizationRequest",
-        details: JSON.stringify({ requestId }),
-        timestamp: now,
-      }),
-    );
+    await logAudit({
+      userId: user.ID,
+      action: "ANONYMIZATION_REQUESTED",
+      resource: "AnonymizationRequest",
+      details: JSON.stringify({ requestId }),
+    });
 
     return {
       requestId,
       status: "requested",
+      confirmationCode,
       message: "Veuillez confirmer l'anonymisation avec le code de confirmation",
     };
   };
@@ -328,7 +337,7 @@ export default class RgpdService extends cds.ApplicationService {
       return req.reject(400, "requestId and confirmationCode are required");
     }
 
-    const { User, AnonymizationRequest, AuditLog } = cds.entities("auto");
+    const { User, AnonymizationRequest } = cds.entities("auto");
 
     const user = await cds.run(SELECT.one.from(User).where({ azureAdB2cId: azureUserId }));
     if (!user) return req.reject(404, "User not found");
@@ -381,21 +390,17 @@ export default class RgpdService extends cds.ApplicationService {
       );
 
       // Log completion
-      await cds.run(
-        INSERT.into(AuditLog).entries({
-          ID: cds.utils.uuid(),
-          userId: user.ID,
-          action: "ANONYMIZATION_COMPLETED",
-          resource: "AnonymizationRequest",
-          details: JSON.stringify({
-            requestId,
-            anonymizedFields: ANONYMIZATION_FIELDS,
-          }),
-          timestamp: new Date().toISOString(),
+      await logAudit({
+        userId: user.ID,
+        action: "ANONYMIZATION_COMPLETED",
+        resource: "AnonymizationRequest",
+        details: JSON.stringify({
+          requestId,
+          anonymizedFields: ANONYMIZATION_FIELDS,
         }),
-      );
+      });
 
-      return { success: true, message: "Compte anonymisé avec succès" };
+      return { success: true, requestId, message: "Compte anonymisé avec succès" };
     } catch (err) {
       // Mark as failed
       await cds.run(

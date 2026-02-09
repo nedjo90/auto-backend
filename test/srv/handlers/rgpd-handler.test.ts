@@ -54,6 +54,11 @@ jest.mock("../../../srv/adapters/factory/adapter-factory", () => ({
   })),
 }));
 
+const mockLogAudit = jest.fn().mockResolvedValue(undefined);
+jest.mock("../../../srv/lib/audit-logger", () => ({
+  logAudit: (...args: any[]) => mockLogAudit(...args),
+}));
+
 jest.mock("@sap/cds", () => {
   class MockApplicationService {
     on = jest.fn();
@@ -85,16 +90,13 @@ const mockRun = cds.run as jest.Mock;
 (global as any).SELECT = {
   from: jest.fn().mockReturnValue({
     where: jest.fn().mockReturnValue({
-      or: jest.fn().mockReturnValue("select-or-query"),
       orderBy: jest.fn().mockReturnValue("select-query"),
     }),
     orderBy: jest.fn().mockReturnValue("select-ordered-query"),
   }),
   one: {
     from: jest.fn().mockReturnValue({
-      where: jest.fn().mockReturnValue({
-        or: jest.fn().mockReturnValue("select-one-or-query"),
-      }),
+      where: jest.fn().mockReturnValue("select-one-query"),
     }),
   },
 };
@@ -131,6 +133,8 @@ describe("RgpdService handler", () => {
 
   beforeEach(async () => {
     mockRun.mockReset();
+    mockLogAudit.mockReset();
+    mockLogAudit.mockResolvedValue(undefined);
     mockAdapter.disableUser.mockReset();
     mockBlobStorage.uploadFile.mockReset();
     mockBlobStorage.generateSignedUrl.mockReset();
@@ -172,8 +176,7 @@ describe("RgpdService handler", () => {
       mockRun
         .mockResolvedValueOnce({ ID: "user-1", azureAdB2cId: "azure-user-id" }) // find user
         .mockResolvedValueOnce(null) // no existing export
-        .mockResolvedValueOnce(undefined) // INSERT DataExportRequest
-        .mockResolvedValueOnce(undefined); // INSERT AuditLog
+        .mockResolvedValueOnce(undefined); // INSERT DataExportRequest
 
       const req = mockReq();
       const handler = registeredHandlers["requestDataExport"];
@@ -181,6 +184,12 @@ describe("RgpdService handler", () => {
 
       expect(result.requestId).toBe("test-uuid-rgpd");
       expect(result.status).toBe("pending");
+      expect(mockLogAudit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "DATA_EXPORT_REQUESTED",
+          resource: "DataExportRequest",
+        }),
+      );
     });
 
     it("should return existing export if pending", async () => {
@@ -284,8 +293,7 @@ describe("RgpdService handler", () => {
       mockRun
         .mockResolvedValueOnce({ ID: "user-1", azureAdB2cId: "azure-user-id", isAnonymized: false })
         .mockResolvedValueOnce(null) // no existing request
-        .mockResolvedValueOnce(undefined) // INSERT AnonymizationRequest
-        .mockResolvedValueOnce(undefined); // INSERT AuditLog
+        .mockResolvedValueOnce(undefined); // INSERT AnonymizationRequest
 
       const req = mockReq();
       const handler = registeredHandlers["requestAnonymization"];
@@ -293,6 +301,13 @@ describe("RgpdService handler", () => {
 
       expect(result.requestId).toBe("test-uuid-rgpd");
       expect(result.status).toBe("requested");
+      expect(result.confirmationCode).toMatch(/^\d{6}$/);
+      expect(mockLogAudit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "ANONYMIZATION_REQUESTED",
+          resource: "AnonymizationRequest",
+        }),
+      );
     });
 
     it("should reject if already anonymized", async () => {
@@ -304,15 +319,18 @@ describe("RgpdService handler", () => {
     });
 
     it("should return existing request if pending", async () => {
-      mockRun
-        .mockResolvedValueOnce({ ID: "user-1", isAnonymized: false })
-        .mockResolvedValueOnce({ ID: "existing-req", status: "requested" });
+      mockRun.mockResolvedValueOnce({ ID: "user-1", isAnonymized: false }).mockResolvedValueOnce({
+        ID: "existing-req",
+        status: "requested",
+        anonymizedFields: JSON.stringify({ confirmationCode: "654321" }),
+      });
 
       const req = mockReq();
       const handler = registeredHandlers["requestAnonymization"];
       const result = await handler(req);
 
       expect(result.requestId).toBe("existing-req");
+      expect(result.confirmationCode).toBe("654321");
     });
   });
 
@@ -328,15 +346,21 @@ describe("RgpdService handler", () => {
         }) // find request
         .mockResolvedValueOnce(undefined) // UPDATE status to processing
         .mockResolvedValueOnce(undefined) // UPDATE User (anonymize)
-        .mockResolvedValueOnce(undefined) // UPDATE AnonymizationRequest (completed)
-        .mockResolvedValueOnce(undefined); // INSERT AuditLog
+        .mockResolvedValueOnce(undefined); // UPDATE AnonymizationRequest (completed)
 
       const req = mockReq({ requestId: "anon-req-1", confirmationCode: "123456" });
       const handler = registeredHandlers["confirmAnonymization"];
       const result = await handler(req);
 
       expect(result.success).toBe(true);
+      expect(result.requestId).toBe("anon-req-1");
       expect(mockAdapter.disableUser).toHaveBeenCalledWith("azure-user-id");
+      expect(mockLogAudit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "ANONYMIZATION_COMPLETED",
+          resource: "AnonymizationRequest",
+        }),
+      );
     });
 
     it("should reject invalid confirmation code", async () => {
@@ -381,8 +405,7 @@ describe("RgpdService handler", () => {
         })
         .mockResolvedValueOnce(undefined) // processing
         .mockResolvedValueOnce(undefined) // anonymize user
-        .mockResolvedValueOnce(undefined) // completed
-        .mockResolvedValueOnce(undefined); // audit log
+        .mockResolvedValueOnce(undefined); // completed
 
       const req = mockReq({ requestId: "anon-req-1", confirmationCode: "123456" });
       const handler = registeredHandlers["confirmAnonymization"];

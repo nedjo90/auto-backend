@@ -3,9 +3,6 @@ using {auto} from '../db/schema';
 @path    : '/api/rgpd'
 @requires: 'authenticated-user'
 service RgpdService {
-  @readonly entity DataExportRequests as projection on auto.DataExportRequest;
-  @readonly entity AnonymizationRequests as projection on auto.AnonymizationRequest;
-
   type DataExportRequestResult {
     requestId                  : UUID;
     status                     : String;
@@ -19,14 +16,16 @@ service RgpdService {
   }
 
   type AnonymizationRequestResult {
-    requestId : UUID;
-    status    : String;
-    message   : String;
+    requestId        : UUID;
+    status           : String;
+    message          : String;
+    confirmationCode : String;
   }
 
   type AnonymizationResult {
-    success : Boolean;
-    message : String;
+    success   : Boolean;
+    requestId : UUID;
+    message   : String;
   }
 
   action requestDataExport() returns DataExportRequestResult;
