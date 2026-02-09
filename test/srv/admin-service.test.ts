@@ -48,6 +48,8 @@ jest.mock("@sap/cds", () => {
         ConfigModerationRule: "ConfigModerationRule",
         ConfigApiProvider: "ConfigApiProvider",
         ApiCallLog: "ApiCallLog",
+        User: "User",
+        AuditLog: "AuditLog",
       })),
       run: jest.fn(),
       log: jest.fn(() => mockLog),
@@ -758,6 +760,350 @@ describe("AdminServiceHandler", () => {
       };
       await expect(handler(req)).rejects.toThrow("rejected");
       expect(req.reject).toHaveBeenCalledWith(500, "ConfigApiProvider entity not found");
+    });
+  });
+
+  describe("getDashboardKpis action", () => {
+    it("should register handler", () => {
+      expect(registeredOnHandlers.has("getDashboardKpis")).toBe(true);
+    });
+
+    it("should reject when period is missing", async () => {
+      const handler = registeredOnHandlers.get("getDashboardKpis")![0];
+      const req: any = {
+        data: {},
+        reject: jest.fn(() => {
+          throw new Error("rejected");
+        }),
+      };
+      await expect(handler(req)).rejects.toThrow("rejected");
+      expect(req.reject).toHaveBeenCalledWith(400, "period is required");
+    });
+
+    it("should reject when period is whitespace-only", async () => {
+      const handler = registeredOnHandlers.get("getDashboardKpis")![0];
+      const req: any = {
+        data: { period: "   " },
+        reject: jest.fn(() => {
+          throw new Error("rejected");
+        }),
+      };
+      await expect(handler(req)).rejects.toThrow("rejected");
+      expect(req.reject).toHaveBeenCalledWith(400, "period is required");
+    });
+
+    it("should reject when period is invalid", async () => {
+      const handler = registeredOnHandlers.get("getDashboardKpis")![0];
+      const req: any = {
+        data: { period: "year" },
+        reject: jest.fn(() => {
+          throw new Error("rejected");
+        }),
+      };
+      await expect(handler(req)).rejects.toThrow("rejected");
+      expect(req.reject).toHaveBeenCalledWith(
+        400,
+        expect.stringContaining("period must be one of"),
+      );
+    });
+
+    it("should return KPIs with data from User and AuditLog tables", async () => {
+      // Mock: visitors (AuditLog) current=10, previous=8
+      // Mock: registrations (User) current=5, previous=4
+      mockRun
+        .mockResolvedValueOnce(Array(5).fill({ ID: "u" })) // User current
+        .mockResolvedValueOnce(Array(4).fill({ ID: "u" })) // User previous
+        .mockResolvedValueOnce(Array(10).fill({ ID: "a" })) // AuditLog current
+        .mockResolvedValueOnce(Array(8).fill({ ID: "a" })); // AuditLog previous
+
+      const handler = registeredOnHandlers.get("getDashboardKpis")![0];
+      const req: any = {
+        data: { period: "week" },
+        reject: jest.fn(),
+      };
+      const result = await handler(req);
+
+      expect(result.registrations.current).toBe(5);
+      expect(result.registrations.previous).toBe(4);
+      expect(result.registrations.trend).toBe(25);
+
+      expect(result.visitors.current).toBe(10);
+      expect(result.visitors.previous).toBe(8);
+      expect(result.visitors.trend).toBe(25);
+
+      // Placeholder KPIs should be zero
+      expect(result.listings.current).toBe(0);
+      expect(result.contacts.current).toBe(0);
+      expect(result.sales.current).toBe(0);
+      expect(result.revenue.current).toBe(0);
+      expect(result.trafficSources).toEqual([]);
+    });
+
+    it("should return zero trend when previous period has no data", async () => {
+      mockRun
+        .mockResolvedValueOnce(Array(3).fill({ ID: "u" })) // User current
+        .mockResolvedValueOnce([]) // User previous (empty)
+        .mockResolvedValueOnce(Array(5).fill({ ID: "a" })) // AuditLog current
+        .mockResolvedValueOnce([]); // AuditLog previous (empty)
+
+      const handler = registeredOnHandlers.get("getDashboardKpis")![0];
+      const req: any = {
+        data: { period: "day" },
+        reject: jest.fn(),
+      };
+      const result = await handler(req);
+
+      expect(result.registrations.current).toBe(3);
+      expect(result.registrations.previous).toBe(0);
+      expect(result.registrations.trend).toBe(0);
+    });
+
+    it("should handle month period", async () => {
+      mockRun
+        .mockResolvedValueOnce([]) // User current
+        .mockResolvedValueOnce([]) // User previous
+        .mockResolvedValueOnce([]) // AuditLog current
+        .mockResolvedValueOnce([]); // AuditLog previous
+
+      const handler = registeredOnHandlers.get("getDashboardKpis")![0];
+      const req: any = {
+        data: { period: "month" },
+        reject: jest.fn(),
+      };
+      const result = await handler(req);
+
+      expect(result.visitors.current).toBe(0);
+      expect(result.registrations.current).toBe(0);
+    });
+
+    it("should handle missing User entity gracefully", async () => {
+      (cds.entities as jest.Mock).mockReturnValueOnce({
+        AuditLog: "AuditLog",
+        // User is missing
+      });
+
+      mockRun
+        .mockResolvedValueOnce(Array(3).fill({ ID: "a" })) // AuditLog current
+        .mockResolvedValueOnce([]); // AuditLog previous
+
+      const handler = registeredOnHandlers.get("getDashboardKpis")![0];
+      const req: any = {
+        data: { period: "week" },
+        reject: jest.fn(),
+      };
+      const result = await handler(req);
+
+      expect(result.registrations).toEqual({ current: 0, previous: 0, trend: 0 });
+      expect(result.visitors.current).toBe(3);
+    });
+  });
+
+  describe("getDashboardTrend action", () => {
+    it("should register handler", () => {
+      expect(registeredOnHandlers.has("getDashboardTrend")).toBe(true);
+    });
+
+    it("should reject when metric is missing", async () => {
+      const handler = registeredOnHandlers.get("getDashboardTrend")![0];
+      const req: any = {
+        data: { days: 30 },
+        reject: jest.fn(() => {
+          throw new Error("rejected");
+        }),
+      };
+      await expect(handler(req)).rejects.toThrow("rejected");
+      expect(req.reject).toHaveBeenCalledWith(400, "metric is required");
+    });
+
+    it("should reject when days is invalid", async () => {
+      const handler = registeredOnHandlers.get("getDashboardTrend")![0];
+      const req: any = {
+        data: { metric: "visitors", days: 0 },
+        reject: jest.fn(() => {
+          throw new Error("rejected");
+        }),
+      };
+      await expect(handler(req)).rejects.toThrow("rejected");
+      expect(req.reject).toHaveBeenCalledWith(400, "days must be between 1 and 365");
+    });
+
+    it("should reject when days exceeds 365", async () => {
+      const handler = registeredOnHandlers.get("getDashboardTrend")![0];
+      const req: any = {
+        data: { metric: "visitors", days: 400 },
+        reject: jest.fn(() => {
+          throw new Error("rejected");
+        }),
+      };
+      await expect(handler(req)).rejects.toThrow("rejected");
+      expect(req.reject).toHaveBeenCalledWith(400, "days must be between 1 and 365");
+    });
+
+    it("should return trend data aggregated by date for visitors", async () => {
+      const today = new Date().toISOString().split("T")[0];
+      const rows = [
+        { timestamp: `${today}T10:00:00Z` },
+        { timestamp: `${today}T11:00:00Z` },
+        { timestamp: `${today}T12:00:00Z` },
+      ];
+      mockRun.mockResolvedValueOnce(rows);
+
+      const handler = registeredOnHandlers.get("getDashboardTrend")![0];
+      const req: any = {
+        data: { metric: "visitors", days: 7 },
+        reject: jest.fn(),
+      };
+      const result = await handler(req);
+
+      expect(result).toHaveLength(7);
+      // Today's date should have 3 entries
+      const todayEntry = result.find((d: any) => d.date === today);
+      expect(todayEntry?.value).toBe(3);
+    });
+
+    it("should return empty trend for unknown metric", async () => {
+      const handler = registeredOnHandlers.get("getDashboardTrend")![0];
+      const req: any = {
+        data: { metric: "listings", days: 7 },
+        reject: jest.fn(),
+      };
+      const result = await handler(req);
+
+      expect(result).toHaveLength(7);
+      // All values should be 0 for unknown metrics
+      for (const point of result) {
+        expect(point.value).toBe(0);
+      }
+    });
+
+    it("should return empty trend data when no rows match", async () => {
+      mockRun.mockResolvedValueOnce([]);
+      const handler = registeredOnHandlers.get("getDashboardTrend")![0];
+      const req: any = {
+        data: { metric: "registrations", days: 5 },
+        reject: jest.fn(),
+      };
+      const result = await handler(req);
+
+      expect(result).toHaveLength(5);
+      for (const point of result) {
+        expect(point.value).toBe(0);
+        expect(point.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      }
+    });
+
+    it("should return registrations trend from User table", async () => {
+      const today = new Date().toISOString().split("T")[0];
+      mockRun.mockResolvedValueOnce([
+        { createdAt: `${today}T08:00:00Z` },
+        { createdAt: `${today}T09:00:00Z` },
+      ]);
+
+      const handler = registeredOnHandlers.get("getDashboardTrend")![0];
+      const req: any = {
+        data: { metric: "registrations", days: 3 },
+        reject: jest.fn(),
+      };
+      const result = await handler(req);
+
+      expect(result).toHaveLength(3);
+      const todayEntry = result.find((d: any) => d.date === today);
+      expect(todayEntry?.value).toBe(2);
+    });
+  });
+
+  describe("getKpiDrillDown action", () => {
+    it("should register handler", () => {
+      expect(registeredOnHandlers.has("getKpiDrillDown")).toBe(true);
+    });
+
+    it("should reject when metric is missing", async () => {
+      const handler = registeredOnHandlers.get("getKpiDrillDown")![0];
+      const req: any = {
+        data: { period: "week" },
+        reject: jest.fn(() => {
+          throw new Error("rejected");
+        }),
+      };
+      await expect(handler(req)).rejects.toThrow("rejected");
+      expect(req.reject).toHaveBeenCalledWith(400, "metric is required");
+    });
+
+    it("should reject when period is invalid", async () => {
+      const handler = registeredOnHandlers.get("getKpiDrillDown")![0];
+      const req: any = {
+        data: { metric: "visitors", period: "year" },
+        reject: jest.fn(() => {
+          throw new Error("rejected");
+        }),
+      };
+      await expect(handler(req)).rejects.toThrow("rejected");
+      expect(req.reject).toHaveBeenCalledWith(
+        400,
+        expect.stringContaining("period must be one of"),
+      );
+    });
+
+    it("should return drill-down data for visitors (week period = 7 days)", async () => {
+      const today = new Date().toISOString().split("T")[0];
+      const rows = [{ timestamp: `${today}T10:00:00Z` }, { timestamp: `${today}T11:00:00Z` }];
+      mockRun.mockResolvedValueOnce(rows);
+
+      const handler = registeredOnHandlers.get("getKpiDrillDown")![0];
+      const req: any = {
+        data: { metric: "visitors", period: "week" },
+        reject: jest.fn(),
+      };
+      const result = await handler(req);
+
+      expect(result).toHaveLength(7);
+      const todayEntry = result.find((d: any) => d.date === today);
+      expect(todayEntry?.value).toBe(2);
+    });
+
+    it("should return drill-down data for day period (1 day)", async () => {
+      mockRun.mockResolvedValueOnce([]);
+
+      const handler = registeredOnHandlers.get("getKpiDrillDown")![0];
+      const req: any = {
+        data: { metric: "visitors", period: "day" },
+        reject: jest.fn(),
+      };
+      const result = await handler(req);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].value).toBe(0);
+    });
+
+    it("should return drill-down data for month period (30 days)", async () => {
+      mockRun.mockResolvedValueOnce([]);
+
+      const handler = registeredOnHandlers.get("getKpiDrillDown")![0];
+      const req: any = {
+        data: { metric: "registrations", period: "month" },
+        reject: jest.fn(),
+      };
+      const result = await handler(req);
+
+      expect(result).toHaveLength(30);
+      for (const point of result) {
+        expect(point.value).toBe(0);
+        expect(point.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      }
+    });
+
+    it("should return empty trend for unknown metric (e.g. listings)", async () => {
+      const handler = registeredOnHandlers.get("getKpiDrillDown")![0];
+      const req: any = {
+        data: { metric: "listings", period: "week" },
+        reject: jest.fn(),
+      };
+      const result = await handler(req);
+
+      expect(result).toHaveLength(7);
+      for (const point of result) {
+        expect(point.value).toBe(0);
+      }
     });
   });
 });

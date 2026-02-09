@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import type { IUserContext, RoleCode } from "@auto/shared";
-import { ROLES } from "@auto/shared";
+import { ROLES, expandRolesWithHierarchy } from "@auto/shared";
 import { validateToken, JwtValidationError } from "../lib/jwt-validator";
 
 // Re-export for consumers
@@ -87,9 +87,11 @@ export function createAuthMiddleware() {
             const roleIds = userRoles.map((ur: { role_ID: string }) => ur.role_ID);
             const roles = await cds.run(cds.ql.SELECT.from(Role).where({ ID: roleIds }));
             const roleCodes = roles.map((r: { code: string }) => r.code);
-            userContext.roles = roleCodes.filter((code: string): code is RoleCode =>
+            const validRoles = roleCodes.filter((code: string): code is RoleCode =>
               (ROLES as readonly string[]).includes(code),
             );
+            // FR54: Expand roles with hierarchy so admin gains all lower-level capabilities
+            userContext.roles = expandRolesWithHierarchy(validRoles);
           }
         }
       } catch (cdsError) {

@@ -46,4 +46,41 @@ service AdminService {
     success : Boolean;
     message : String;
   };
+
+  /** KPI value with trend comparison */
+  type KpiValue {
+    current  : Integer;
+    previous : Integer;
+    trend    : Decimal(5, 1);
+  }
+
+  /** Traffic source breakdown entry */
+  type TrafficSource {
+    source     : String;
+    visits     : Integer;
+    percentage : Decimal(5, 1);
+  }
+
+  /** Get all dashboard KPIs for a period */
+  action getDashboardKpis(period : String(20) not null) returns {
+    visitors       : KpiValue;
+    registrations  : KpiValue;
+    listings       : KpiValue;
+    contacts       : KpiValue;
+    sales          : KpiValue;
+    revenue        : KpiValue;
+    trafficSources : array of TrafficSource;
+  };
+
+  /** Get trend data for a specific metric over N days */
+  action getDashboardTrend(metric : String(50) not null, days : Integer not null) returns array of {
+    date  : Date;
+    value : Integer;
+  };
+
+  /** Get drill-down data for a specific KPI metric */
+  action getKpiDrillDown(metric : String(50) not null, period : String(20) not null) returns array of {
+    date  : Date;
+    value : Integer;
+  };
 }

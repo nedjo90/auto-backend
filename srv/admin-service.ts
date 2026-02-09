@@ -2,6 +2,7 @@ import cds from "@sap/cds";
 import { configCache } from "./lib/config-cache";
 import { logAudit } from "./lib/audit-logger";
 import { invalidateAdapter } from "./adapters/factory/adapter-factory";
+import { signalrClient } from "./lib/signalr-client";
 
 const LOG = cds.log("admin");
 
@@ -40,6 +41,12 @@ export default class AdminServiceHandler extends cds.ApplicationService {
     this.on("getApiCostSummary", this.handleGetApiCostSummary);
     this.on("getProviderAnalytics", this.handleGetProviderAnalytics);
     this.on("switchProvider", this.handleSwitchProvider);
+    this.on("getDashboardKpis", this.handleGetDashboardKpis);
+    this.on("getDashboardTrend", this.handleGetDashboardTrend);
+    this.on("getKpiDrillDown", this.handleGetKpiDrillDown);
+
+    // Initialize SignalR client for real-time admin updates
+    signalrClient.initialize();
 
     await super.init();
   }
@@ -111,6 +118,21 @@ export default class AdminServiceHandler extends cds.ApplicationService {
       details: JSON.stringify(details),
     });
   };
+
+  /**
+   * Emit a KPI update event via SignalR to connected admin clients.
+   */
+  private async emitKpiUpdate(event: string, data: Record<string, unknown>): Promise<void> {
+    try {
+      await signalrClient.broadcast("kpiUpdate", {
+        event,
+        ...data,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (err) {
+      LOG.warn("Failed to emit SignalR KPI update:", err);
+    }
+  }
 
   /**
    * Action handler: estimate impact of changing a config parameter.
@@ -371,6 +393,255 @@ export default class AdminServiceHandler extends cds.ApplicationService {
       return req.reject(500, "Failed to switch provider");
     }
   };
+
+  /**
+   * Action handler: get dashboard KPIs for a given period.
+   * Queries available tables (User, AuditLog, ApiCallLog).
+   * Listings, contacts, sales, revenue return 0 until those entities exist.
+   */
+  private handleGetDashboardKpis = async (req: cds.Request) => {
+    const { period } = req.data as { period: string };
+    if (!period?.trim()) {
+      return req.reject(400, "period is required");
+    }
+
+    const validPeriods = ["day", "week", "month"];
+    if (!validPeriods.includes(period)) {
+      return req.reject(400, `period must be one of: ${validPeriods.join(", ")}`);
+    }
+
+    try {
+      const entities = cds.entities("auto");
+
+      // Calculate current and previous period thresholds
+      const now = new Date();
+      const currentStart = new Date(now);
+      const previousStart = new Date(now);
+
+      if (period === "day") {
+        currentStart.setDate(now.getDate() - 1);
+        previousStart.setDate(now.getDate() - 2);
+      } else if (period === "week") {
+        currentStart.setDate(now.getDate() - 7);
+        previousStart.setDate(now.getDate() - 14);
+      } else {
+        currentStart.setMonth(now.getMonth() - 1);
+        previousStart.setMonth(now.getMonth() - 2);
+      }
+
+      const currentStartStr = currentStart.toISOString();
+      const previousStartStr = previousStart.toISOString();
+
+      // Registrations KPI (from User table)
+      const registrations = await this.computeKpi(
+        entities["User"],
+        "createdAt",
+        currentStartStr,
+        previousStartStr,
+        now.toISOString(),
+      );
+
+      // Visitors KPI (from AuditLog - count unique user actions)
+      const visitors = await this.computeKpi(
+        entities["AuditLog"],
+        "timestamp",
+        currentStartStr,
+        previousStartStr,
+        now.toISOString(),
+      );
+
+      // Placeholder KPIs for entities that don't exist yet
+      const zeroKpi = { current: 0, previous: 0, trend: 0 };
+
+      return {
+        visitors,
+        registrations,
+        listings: zeroKpi,
+        contacts: zeroKpi,
+        sales: zeroKpi,
+        revenue: zeroKpi,
+        trafficSources: [],
+      };
+    } catch (err) {
+      LOG.error("Failed to compute dashboard KPIs:", err);
+      return req.reject(500, "Failed to compute dashboard KPIs");
+    }
+  };
+
+  /**
+   * Compute a KPI with current/previous period comparison.
+   */
+  private async computeKpi(
+    entity: unknown,
+    timestampField: string,
+    currentStart: string,
+    previousStart: string,
+    currentEnd: string,
+  ): Promise<{ current: number; previous: number; trend: number }> {
+    if (!entity) {
+      return { current: 0, previous: 0, trend: 0 };
+    }
+
+    const currentRows = (await cds.run(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      SELECT.from(entity as any).where({
+        [timestampField]: { ">=": currentStart, "<=": currentEnd },
+      }),
+    )) as unknown[];
+
+    const previousRows = (await cds.run(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      SELECT.from(entity as any).where({
+        [timestampField]: { ">=": previousStart, "<": currentStart },
+      }),
+    )) as unknown[];
+
+    const current = currentRows?.length || 0;
+    const previous = previousRows?.length || 0;
+    const trend = previous > 0 ? Number((((current - previous) / previous) * 100).toFixed(1)) : 0;
+
+    return { current, previous, trend };
+  }
+
+  /**
+   * Action handler: get trend data for a specific metric over N days.
+   */
+  private handleGetDashboardTrend = async (req: cds.Request) => {
+    const { metric, days } = req.data as { metric: string; days: number };
+    if (!metric?.trim()) {
+      return req.reject(400, "metric is required");
+    }
+    if (!days || days < 1 || days > 365) {
+      return req.reject(400, "days must be between 1 and 365");
+    }
+
+    try {
+      const entities = cds.entities("auto");
+
+      // Map metrics to entities and timestamp fields
+      const metricConfig: Record<string, { entity: unknown; timestampField: string }> = {
+        visitors: { entity: entities["AuditLog"], timestampField: "timestamp" },
+        registrations: { entity: entities["User"], timestampField: "createdAt" },
+      };
+
+      const config = metricConfig[metric];
+      if (!config?.entity) {
+        // Return empty array for metrics without backing entities
+        return this.generateEmptyTrend(days);
+      }
+
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+      const startStr = startDate.toISOString();
+
+      const rows = (await cds.run(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        SELECT.from(config.entity as any).where({
+          [config.timestampField]: { ">=": startStr },
+        }),
+      )) as { [key: string]: string }[];
+
+      // Aggregate by date
+      const countByDate = new Map<string, number>();
+      for (let i = 0; i < days; i++) {
+        const d = new Date();
+        d.setDate(d.getDate() - days + i + 1);
+        countByDate.set(d.toISOString().split("T")[0], 0);
+      }
+
+      for (const row of rows || []) {
+        const ts = row[config.timestampField];
+        if (ts) {
+          const dateKey = new Date(ts).toISOString().split("T")[0];
+          if (countByDate.has(dateKey)) {
+            countByDate.set(dateKey, (countByDate.get(dateKey) || 0) + 1);
+          }
+        }
+      }
+
+      return Array.from(countByDate.entries()).map(([date, value]) => ({ date, value }));
+    } catch (err) {
+      LOG.error("Failed to compute dashboard trend:", err);
+      return req.reject(500, "Failed to compute dashboard trend");
+    }
+  };
+
+  /**
+   * Action handler: get drill-down data for a specific KPI metric.
+   * Returns daily aggregation for the requested period.
+   */
+  private handleGetKpiDrillDown = async (req: cds.Request) => {
+    const { metric, period } = req.data as { metric: string; period: string };
+    if (!metric?.trim()) {
+      return req.reject(400, "metric is required");
+    }
+    const validPeriods = ["day", "week", "month"];
+    if (!validPeriods.includes(period)) {
+      return req.reject(400, `period must be one of: ${validPeriods.join(", ")}`);
+    }
+
+    const days = period === "day" ? 1 : period === "week" ? 7 : 30;
+
+    try {
+      const entities = cds.entities("auto");
+
+      const metricConfig: Record<string, { entity: unknown; timestampField: string }> = {
+        visitors: { entity: entities["AuditLog"], timestampField: "timestamp" },
+        registrations: { entity: entities["User"], timestampField: "createdAt" },
+      };
+
+      const config = metricConfig[metric];
+      if (!config?.entity) {
+        return this.generateEmptyTrend(days);
+      }
+
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+      const startStr = startDate.toISOString();
+
+      const rows = (await cds.run(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        SELECT.from(config.entity as any).where({
+          [config.timestampField]: { ">=": startStr },
+        }),
+      )) as { [key: string]: string }[];
+
+      const countByDate = new Map<string, number>();
+      for (let i = 0; i < days; i++) {
+        const d = new Date();
+        d.setDate(d.getDate() - days + i + 1);
+        countByDate.set(d.toISOString().split("T")[0], 0);
+      }
+
+      for (const row of rows || []) {
+        const ts = row[config.timestampField];
+        if (ts) {
+          const dateKey = new Date(ts).toISOString().split("T")[0];
+          if (countByDate.has(dateKey)) {
+            countByDate.set(dateKey, (countByDate.get(dateKey) || 0) + 1);
+          }
+        }
+      }
+
+      return Array.from(countByDate.entries()).map(([date, value]) => ({ date, value }));
+    } catch (err) {
+      LOG.error("Failed to compute KPI drill-down:", err);
+      return req.reject(500, "Failed to compute KPI drill-down");
+    }
+  };
+
+  /**
+   * Generate empty trend data (zeros) for N days.
+   */
+  private generateEmptyTrend(days: number): { date: string; value: number }[] {
+    const result: { date: string; value: number }[] = [];
+    for (let i = 0; i < days; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - days + i + 1);
+      result.push({ date: d.toISOString().split("T")[0], value: 0 });
+    }
+    return result;
+  }
 
   /**
    * Resolve source table name from fully-qualified CDS entity name.
