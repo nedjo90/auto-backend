@@ -34,6 +34,9 @@ export default class AdminServiceHandler extends cds.ApplicationService {
       this.after(["CREATE", "UPDATE", "DELETE"], entity, this.onConfigMutation.bind(this, entity));
     }
 
+    // Register action handler for impact estimation
+    this.on("estimateConfigImpact", this.handleEstimateImpact);
+
     await super.init();
   }
 
@@ -105,6 +108,38 @@ export default class AdminServiceHandler extends cds.ApplicationService {
       resource: tableName,
       details: JSON.stringify(details),
     });
+  };
+
+  /**
+   * Action handler: estimate impact of changing a config parameter.
+   */
+  private handleEstimateImpact = async (req: cds.Request) => {
+    const { parameterKey } = req.data as { parameterKey: string };
+    if (!parameterKey) {
+      return req.reject(400, "parameterKey is required");
+    }
+
+    // Estimate based on parameter type/category
+    const param = configCache.get<{ key: string; category: string | null }>(
+      "ConfigParameter",
+      parameterKey,
+    );
+    if (!param) {
+      return { affectedCount: 0, message: "Parametre non trouve dans le cache." };
+    }
+
+    // For pricing parameters, estimate based on future listings
+    if (param.category === "pricing") {
+      return {
+        affectedCount: 0,
+        message: "Cette modification affectera les prochaines annonces.",
+      };
+    }
+
+    return {
+      affectedCount: 0,
+      message: "Cette modification prendra effet immediatement.",
+    };
   };
 
   /**

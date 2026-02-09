@@ -15,4 +15,10 @@ service AdminService {
   entity ConfigApiProviders     as projection on auto.ConfigApiProvider;
   @readonly entity ConfigRegistrationFields as projection on auto.ConfigRegistrationField;
   @readonly entity ConfigProfileFields      as projection on auto.ConfigProfileField;
+
+  /** Estimate impact of changing a config parameter */
+  action estimateConfigImpact(parameterKey : String) returns {
+    affectedCount : Integer;
+    message       : String;
+  };
 }

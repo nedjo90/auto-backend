@@ -2,9 +2,10 @@
 
 const mockRefreshTable = jest.fn().mockResolvedValue(undefined);
 const mockInvalidate = jest.fn();
+const mockCacheGet = jest.fn();
 jest.mock("../../srv/lib/config-cache", () => ({
   configCache: {
-    get: jest.fn(),
+    get: (...args: any[]) => mockCacheGet(...args),
     getAll: jest.fn(() => []),
     invalidate: mockInvalidate,
     refresh: jest.fn().mockResolvedValue(undefined),
@@ -67,15 +68,18 @@ describe("AdminServiceHandler", () => {
   let service: any;
   let registeredBeforeHandlers: Map<string, Function[]>;
   let registeredAfterHandlers: Map<string, Function[]>;
+  let registeredOnHandlers: Map<string, Function[]>;
 
   beforeEach(async () => {
     jest.clearAllMocks();
     mockLogAudit.mockResolvedValue(undefined);
     mockRefreshTable.mockResolvedValue(undefined);
     mockInvalidate.mockReset();
+    mockCacheGet.mockReset();
 
     registeredBeforeHandlers = new Map();
     registeredAfterHandlers = new Map();
+    registeredOnHandlers = new Map();
 
     service = new AdminServiceHandler();
     service.before = jest.fn((events: string[], entity: string, handler: Function) => {
@@ -91,6 +95,10 @@ describe("AdminServiceHandler", () => {
         if (!registeredAfterHandlers.has(key)) registeredAfterHandlers.set(key, []);
         registeredAfterHandlers.get(key)!.push(handler);
       }
+    });
+    service.on = jest.fn((actionName: string, handler: Function) => {
+      if (!registeredOnHandlers.has(actionName)) registeredOnHandlers.set(actionName, []);
+      registeredOnHandlers.get(actionName)!.push(handler);
     });
 
     await service.init();
@@ -304,6 +312,55 @@ describe("AdminServiceHandler", () => {
 
       // Audit should still be logged
       expect(mockLogAudit).toHaveBeenCalled();
+    });
+  });
+
+  describe("estimateConfigImpact action", () => {
+    it("should register estimateConfigImpact handler", () => {
+      expect(registeredOnHandlers.has("estimateConfigImpact")).toBe(true);
+    });
+
+    it("should reject when parameterKey is missing", async () => {
+      const handler = registeredOnHandlers.get("estimateConfigImpact")![0];
+      const req: any = {
+        data: {},
+        reject: jest.fn(),
+      };
+      await handler(req);
+      expect(req.reject).toHaveBeenCalledWith(400, "parameterKey is required");
+    });
+
+    it("should return impact message for pricing parameter", async () => {
+      mockCacheGet.mockReturnValueOnce({ key: "listing.price", category: "pricing" });
+      const handler = registeredOnHandlers.get("estimateConfigImpact")![0];
+      const req: any = {
+        data: { parameterKey: "listing.price" },
+        reject: jest.fn(),
+      };
+      const result = await handler(req);
+      expect(result.message).toContain("prochaines annonces");
+    });
+
+    it("should return generic message for non-pricing parameter", async () => {
+      mockCacheGet.mockReturnValueOnce({ key: "session.timeout", category: "system" });
+      const handler = registeredOnHandlers.get("estimateConfigImpact")![0];
+      const req: any = {
+        data: { parameterKey: "session.timeout" },
+        reject: jest.fn(),
+      };
+      const result = await handler(req);
+      expect(result.message).toContain("immediatement");
+    });
+
+    it("should return not found message for unknown parameter", async () => {
+      mockCacheGet.mockReturnValueOnce(undefined);
+      const handler = registeredOnHandlers.get("estimateConfigImpact")![0];
+      const req: any = {
+        data: { parameterKey: "unknown.key" },
+        reject: jest.fn(),
+      };
+      const result = await handler(req);
+      expect(result.message).toContain("non trouve");
     });
   });
 });
