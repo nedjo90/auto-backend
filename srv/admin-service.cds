@@ -38,6 +38,7 @@ service AdminService {
     totalCalls        : Integer;
     totalCost         : Decimal(10, 4);
     avgCostPerCall    : Decimal(10, 4);
+    lastCallTimestamp : String;
   };
 
   /** Switch active provider for an adapter interface (mutual exclusion) */

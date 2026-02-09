@@ -1,9 +1,38 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-require-imports */
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-function-type */
 
 const mockGetAll = jest.fn();
 jest.mock("../../../srv/lib/config-cache", () => ({
   configCache: {
     getAll: (...args: any[]) => mockGetAll(...args),
+  },
+}));
+
+const mockLogApiCall = jest.fn().mockResolvedValue(undefined);
+jest.mock("../../../srv/lib/api-logger", () => ({
+  withApiLogging: (iface: string, provider: string, cost: number, fn: Function) => {
+    return async (...args: any[]) => {
+      const start = Date.now();
+      let status = 200;
+      let errorMsg: string | undefined;
+      try {
+        return await fn(...args);
+      } catch (err: any) {
+        status = 500;
+        errorMsg = err?.message;
+        throw err;
+      } finally {
+        await mockLogApiCall({
+          adapterInterface: iface,
+          providerKey: provider,
+          endpoint: fn.name || "unknown",
+          httpMethod: "POST",
+          httpStatus: status,
+          responseTimeMs: Date.now() - start,
+          cost,
+          errorMessage: errorMsg,
+        });
+      }
+    };
   },
 }));
 
@@ -182,6 +211,80 @@ describe("adapter-factory", () => {
         { key: "unknown.provider", adapterInterface: "IIdentityProviderAdapter", status: "active" },
       ]);
       expect(() => getIdentityProvider()).toThrow("No adapter implementation registered");
+    });
+  });
+
+  describe("API call logging integration", () => {
+    it("should log API calls when adapter methods are invoked", async () => {
+      mockGetAll.mockReturnValue([
+        {
+          key: "azure.adb2c",
+          adapterInterface: "IIdentityProviderAdapter",
+          status: "active",
+          costPerCall: 0.001,
+        },
+      ]);
+      const adapter = getIdentityProvider();
+      await adapter.createUser({ email: "test@example.com" });
+
+      expect(mockLogApiCall).toHaveBeenCalledWith(
+        expect.objectContaining({
+          adapterInterface: "IIdentityProviderAdapter",
+          providerKey: "azure.adb2c",
+          cost: 0.001,
+          httpStatus: 200,
+        }),
+      );
+    });
+
+    it("should log failed API calls with error details", async () => {
+      // Set up mock to throw before adapter resolution
+      const {
+        AzureBlobStorageAdapter,
+      } = require("../../../srv/adapters/azure-blob-storage-adapter");
+      (AzureBlobStorageAdapter as jest.Mock).mockImplementationOnce(() => ({
+        uploadFile: jest.fn(),
+        generateSignedUrl: jest.fn().mockRejectedValue(new Error("File not found")),
+        deleteFile: jest.fn(),
+      }));
+
+      mockGetAll.mockReturnValue([
+        {
+          key: "azure.blob",
+          adapterInterface: "IBlobStorageAdapter",
+          status: "active",
+          costPerCall: 0.0005,
+        },
+      ]);
+      const adapter = getBlobStorage();
+
+      await expect(adapter.generateSignedUrl("c", "p", 10)).rejects.toThrow("File not found");
+
+      expect(mockLogApiCall).toHaveBeenCalledWith(
+        expect.objectContaining({
+          adapterInterface: "IBlobStorageAdapter",
+          providerKey: "azure.blob",
+          httpStatus: 500,
+          errorMessage: "File not found",
+        }),
+      );
+    });
+
+    it("should log calls for all adapter methods", async () => {
+      mockGetAll.mockReturnValue([
+        {
+          key: "azure.adb2c",
+          adapterInterface: "IIdentityProviderAdapter",
+          status: "active",
+          costPerCall: 0.001,
+        },
+      ]);
+      const adapter = getIdentityProvider();
+      await adapter.createUser({});
+      await adapter.disableUser("ext-id");
+      await adapter.updateUser("ext-id", {});
+
+      expect(mockLogApiCall).toHaveBeenCalledTimes(3);
     });
   });
 });

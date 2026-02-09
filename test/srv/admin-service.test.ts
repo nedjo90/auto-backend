@@ -595,14 +595,15 @@ describe("AdminServiceHandler", () => {
         totalCalls: 0,
         totalCost: 0,
         avgCostPerCall: 0,
+        lastCallTimestamp: null,
       });
     });
 
-    it("should compute analytics correctly", async () => {
+    it("should compute analytics correctly including lastCallTimestamp", async () => {
       const logs = [
-        { httpStatus: 200, responseTimeMs: 100, cost: 0.01 },
-        { httpStatus: 200, responseTimeMs: 200, cost: 0.02 },
-        { httpStatus: 500, responseTimeMs: 5000, cost: 0.01 },
+        { httpStatus: 200, responseTimeMs: 100, cost: 0.01, timestamp: "2026-02-08T10:00:00Z" },
+        { httpStatus: 200, responseTimeMs: 200, cost: 0.02, timestamp: "2026-02-09T14:30:00Z" },
+        { httpStatus: 500, responseTimeMs: 5000, cost: 0.01, timestamp: "2026-02-07T08:00:00Z" },
       ];
       mockRun.mockResolvedValueOnce(logs);
       const handler = registeredOnHandlers.get("getProviderAnalytics")![0];
@@ -616,6 +617,7 @@ describe("AdminServiceHandler", () => {
       expect(result.successRate).toBe(66.67);
       expect(result.totalCost).toBe(0.04);
       expect(result.avgCostPerCall).toBeCloseTo(0.0133, 3);
+      expect(result.lastCallTimestamp).toBe("2026-02-09T14:30:00Z");
     });
 
     it("should return zero when ApiCallLog entity not found", async () => {
@@ -632,6 +634,7 @@ describe("AdminServiceHandler", () => {
         totalCalls: 0,
         totalCost: 0,
         avgCostPerCall: 0,
+        lastCallTimestamp: null,
       });
     });
   });

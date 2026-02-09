@@ -231,6 +231,7 @@ export default class AdminServiceHandler extends cds.ApplicationService {
           totalCalls: 0,
           totalCost: 0,
           avgCostPerCall: 0,
+          lastCallTimestamp: null,
         };
       }
 
@@ -238,6 +239,7 @@ export default class AdminServiceHandler extends cds.ApplicationService {
         httpStatus: number;
         responseTimeMs: number;
         cost: number;
+        timestamp: string;
       }[];
 
       if (!logs || logs.length === 0) {
@@ -247,18 +249,23 @@ export default class AdminServiceHandler extends cds.ApplicationService {
           totalCalls: 0,
           totalCost: 0,
           avgCostPerCall: 0,
+          lastCallTimestamp: null,
         };
       }
 
       let totalResponseTime = 0;
       let totalCost = 0;
       let successCount = 0;
+      let lastTimestamp: string | null = null;
 
       for (const log of logs) {
         totalResponseTime += Number(log.responseTimeMs) || 0;
         totalCost += Number(log.cost) || 0;
         if (log.httpStatus >= 200 && log.httpStatus < 300) {
           successCount++;
+        }
+        if (log.timestamp && (!lastTimestamp || log.timestamp > lastTimestamp)) {
+          lastTimestamp = log.timestamp;
         }
       }
 
@@ -268,6 +275,7 @@ export default class AdminServiceHandler extends cds.ApplicationService {
         totalCalls: logs.length,
         totalCost: Number(totalCost.toFixed(4)),
         avgCostPerCall: Number((totalCost / logs.length).toFixed(4)),
+        lastCallTimestamp: lastTimestamp,
       };
     } catch (err) {
       LOG.error("Failed to compute provider analytics:", err);
