@@ -1,3 +1,6 @@
 ID;key;value;description
 a1b2c3d4-e5f6-7890-abcd-ef1234567001;session.inactivity.timeout.minutes;30;Inactivity timeout in minutes before session expires
 a1b2c3d4-e5f6-7890-abcd-ef1234567002;session.timeout.warning.minutes;5;Minutes before timeout to show warning dialog
+a1b2c3d4-e5f6-7890-abcd-ef1234567003;rgpd.export.download.expiry.hours;48;Download link valid for N hours
+a1b2c3d4-e5f6-7890-abcd-ef1234567004;rgpd.export.processing.timeout.minutes;30;Max export processing time in minutes
+a1b2c3d4-e5f6-7890-abcd-ef1234567005;rgpd.anonymization.cooldown.hours;72;Waiting period before anonymization is executed
