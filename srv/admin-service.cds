@@ -17,7 +17,7 @@ service AdminService {
   @readonly entity ConfigProfileFields      as projection on auto.ConfigProfileField;
 
   /** Estimate impact of changing a config parameter */
-  action estimateConfigImpact(parameterKey : String) returns {
+  action estimateConfigImpact(parameterKey : String(100) not null) returns {
     affectedCount : Integer;
     message       : String;
   };

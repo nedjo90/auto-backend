@@ -115,7 +115,7 @@ export default class AdminServiceHandler extends cds.ApplicationService {
    */
   private handleEstimateImpact = async (req: cds.Request) => {
     const { parameterKey } = req.data as { parameterKey: string };
-    if (!parameterKey) {
+    if (!parameterKey?.trim()) {
       return req.reject(400, "parameterKey is required");
     }
 

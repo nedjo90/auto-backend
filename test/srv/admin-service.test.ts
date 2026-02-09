@@ -322,11 +322,27 @@ describe("AdminServiceHandler", () => {
 
     it("should reject when parameterKey is missing", async () => {
       const handler = registeredOnHandlers.get("estimateConfigImpact")![0];
+      const rejectedError = new Error("rejected");
       const req: any = {
         data: {},
-        reject: jest.fn(),
+        reject: jest.fn(() => {
+          throw rejectedError;
+        }),
       };
-      await handler(req);
+      await expect(handler(req)).rejects.toThrow("rejected");
+      expect(req.reject).toHaveBeenCalledWith(400, "parameterKey is required");
+      expect(mockCacheGet).not.toHaveBeenCalled();
+    });
+
+    it("should reject when parameterKey is whitespace-only", async () => {
+      const handler = registeredOnHandlers.get("estimateConfigImpact")![0];
+      const req: any = {
+        data: { parameterKey: "   " },
+        reject: jest.fn(() => {
+          throw new Error("rejected");
+        }),
+      };
+      await expect(handler(req)).rejects.toThrow("rejected");
       expect(req.reject).toHaveBeenCalledWith(400, "parameterKey is required");
     });
 
@@ -338,6 +354,7 @@ describe("AdminServiceHandler", () => {
         reject: jest.fn(),
       };
       const result = await handler(req);
+      expect(mockCacheGet).toHaveBeenCalledWith("ConfigParameter", "listing.price");
       expect(result.message).toContain("prochaines annonces");
     });
 
@@ -346,6 +363,18 @@ describe("AdminServiceHandler", () => {
       const handler = registeredOnHandlers.get("estimateConfigImpact")![0];
       const req: any = {
         data: { parameterKey: "session.timeout" },
+        reject: jest.fn(),
+      };
+      const result = await handler(req);
+      expect(mockCacheGet).toHaveBeenCalledWith("ConfigParameter", "session.timeout");
+      expect(result.message).toContain("immediatement");
+    });
+
+    it("should return generic message for parameter with null category", async () => {
+      mockCacheGet.mockReturnValueOnce({ key: "misc.param", category: null });
+      const handler = registeredOnHandlers.get("estimateConfigImpact")![0];
+      const req: any = {
+        data: { parameterKey: "misc.param" },
         reject: jest.fn(),
       };
       const result = await handler(req);
@@ -360,6 +389,7 @@ describe("AdminServiceHandler", () => {
         reject: jest.fn(),
       };
       const result = await handler(req);
+      expect(mockCacheGet).toHaveBeenCalledWith("ConfigParameter", "unknown.key");
       expect(result.message).toContain("non trouve");
     });
   });
