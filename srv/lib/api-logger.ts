@@ -57,7 +57,9 @@ export function withApiLogging<TArgs extends unknown[], TResult>(
   providerKey: string,
   costPerCall: number,
   fn: (...args: TArgs) => Promise<TResult>,
+  endpointName?: string,
 ): (...args: TArgs) => Promise<TResult> {
+  const resolvedEndpoint = endpointName || fn.name || "unknown";
   return async (...args: TArgs): Promise<TResult> => {
     const start = Date.now();
     let httpStatus = 200;
@@ -75,7 +77,7 @@ export function withApiLogging<TArgs extends unknown[], TResult>(
       await logApiCall({
         adapterInterface,
         providerKey,
-        endpoint: fn.name || "unknown",
+        endpoint: resolvedEndpoint,
         httpMethod: "POST",
         httpStatus,
         responseTimeMs,

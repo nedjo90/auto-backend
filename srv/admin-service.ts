@@ -235,7 +235,14 @@ export default class AdminServiceHandler extends cds.ApplicationService {
         };
       }
 
-      const logs = (await cds.run(SELECT.from(ApiCallLog).where({ providerKey }))) as {
+      // Default 90-day lookback to prevent unbounded query growth
+      const lookback = new Date();
+      lookback.setDate(lookback.getDate() - 90);
+      const lookbackStr = lookback.toISOString();
+
+      const logs = (await cds.run(
+        SELECT.from(ApiCallLog).where({ providerKey, timestamp: { ">=": lookbackStr } }),
+      )) as {
         httpStatus: number;
         responseTimeMs: number;
         cost: number;

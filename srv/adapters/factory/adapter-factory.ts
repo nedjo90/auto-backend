@@ -57,6 +57,7 @@ function wrapWithLogging<T extends object>(
         providerKey,
         costPerCall,
         bound,
+        key,
       );
     } else {
       wrapped[key] = val;
@@ -76,6 +77,7 @@ function wrapWithLogging<T extends object>(
           providerKey,
           costPerCall,
           bound,
+          key,
         );
       }
     }

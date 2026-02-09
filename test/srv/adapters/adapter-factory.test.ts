@@ -9,7 +9,14 @@ jest.mock("../../../srv/lib/config-cache", () => ({
 
 const mockLogApiCall = jest.fn().mockResolvedValue(undefined);
 jest.mock("../../../srv/lib/api-logger", () => ({
-  withApiLogging: (iface: string, provider: string, cost: number, fn: Function) => {
+  withApiLogging: (
+    iface: string,
+    provider: string,
+    cost: number,
+    fn: Function,
+    endpointName?: string,
+  ) => {
+    const resolvedEndpoint = endpointName || fn.name || "unknown";
     return async (...args: any[]) => {
       const start = Date.now();
       let status = 200;
@@ -24,7 +31,7 @@ jest.mock("../../../srv/lib/api-logger", () => ({
         await mockLogApiCall({
           adapterInterface: iface,
           providerKey: provider,
-          endpoint: fn.name || "unknown",
+          endpoint: resolvedEndpoint,
           httpMethod: "POST",
           httpStatus: status,
           responseTimeMs: Date.now() - start,
