@@ -10,3 +10,17 @@ entity AuditLog : cuid {
   ipAddress : String(45);
   timestamp : Timestamp;
 }
+
+entity ApiCallLog : cuid {
+  adapterInterface : String(100);
+  providerKey      : String(100);
+  endpoint         : String(500);
+  httpMethod       : String(10);
+  httpStatus       : Integer;
+  responseTimeMs   : Integer;
+  cost             : Decimal(10, 4) default 0;
+  listingId        : String(36);
+  requestId        : String(36);
+  errorMessage     : String(500);
+  timestamp        : Timestamp;
+}
