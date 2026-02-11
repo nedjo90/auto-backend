@@ -48,6 +48,7 @@ jest.mock("@sap/cds", () => {
         ConfigModerationRule: "ConfigModerationRule",
         ConfigApiProvider: "ConfigApiProvider",
         ConfigAlert: "ConfigAlert",
+        ConfigSeoTemplate: "ConfigSeoTemplate",
         ApiCallLog: "ApiCallLog",
         AlertEvent: "AlertEvent",
         User: "User",
@@ -129,7 +130,7 @@ describe("AdminServiceHandler", () => {
     await service.init();
   });
 
-  it("should register BEFORE handlers for UPDATE/DELETE on all 10 config entities", () => {
+  it("should register BEFORE handlers for UPDATE/DELETE on all 12 config entities", () => {
     const configEntities = [
       "ConfigParameters",
       "ConfigTexts",
@@ -141,6 +142,8 @@ describe("AdminServiceHandler", () => {
       "ConfigChatActions",
       "ConfigModerationRules",
       "ConfigApiProviders",
+      "ConfigAlerts",
+      "ConfigSeoTemplates",
     ];
 
     for (const entity of configEntities) {
@@ -149,7 +152,7 @@ describe("AdminServiceHandler", () => {
     }
   });
 
-  it("should register AFTER handlers for CREATE/UPDATE/DELETE on all 10 config entities", () => {
+  it("should register AFTER handlers for CREATE/UPDATE/DELETE on all 12 config entities", () => {
     const configEntities = [
       "ConfigParameters",
       "ConfigTexts",
@@ -161,6 +164,8 @@ describe("AdminServiceHandler", () => {
       "ConfigChatActions",
       "ConfigModerationRules",
       "ConfigApiProviders",
+      "ConfigAlerts",
+      "ConfigSeoTemplates",
     ];
 
     for (const entity of configEntities) {
@@ -1169,6 +1174,53 @@ describe("AdminServiceHandler", () => {
           resource: "AlertEvent",
         }),
       );
+    });
+  });
+
+  describe("validateSeoTemplateInput (BEFORE handler)", () => {
+    it("should register validation BEFORE handler for ConfigSeoTemplates CREATE/UPDATE", () => {
+      expect(registeredBeforeHandlers.has("CREATE:ConfigSeoTemplates")).toBe(true);
+      expect(registeredBeforeHandlers.has("UPDATE:ConfigSeoTemplates")).toBe(true);
+    });
+
+    it("should reject invalid SEO template input", async () => {
+      const handlers = registeredBeforeHandlers.get("CREATE:ConfigSeoTemplates");
+      expect(handlers).toBeDefined();
+
+      // Find the validation handler (not captureOldValue)
+      const validationHandler = handlers!.find((h) => {
+        const req: any = {
+          data: { pageType: "invalid_type", metaTitleTemplate: "", metaDescriptionTemplate: "" },
+          reject: jest.fn(),
+        };
+        h(req);
+        return req.reject.mock.calls.length > 0;
+      });
+      expect(validationHandler).toBeDefined();
+    });
+
+    it("should accept valid SEO template input", async () => {
+      const handlers = registeredBeforeHandlers.get("CREATE:ConfigSeoTemplates");
+      expect(handlers).toBeDefined();
+
+      const req: any = {
+        data: {
+          pageType: "listing_detail",
+          metaTitleTemplate: "{{brand}} {{model}} - Auto",
+          metaDescriptionTemplate: "Buy {{brand}} {{model}} at {{price}} EUR",
+        },
+        reject: jest.fn(),
+      };
+
+      // Call all handlers
+      for (const handler of handlers!) {
+        await handler(req);
+      }
+      // reject should not have been called for valid input
+      const validationCalls = req.reject.mock.calls.filter((c: any[]) =>
+        String(c[1]).includes("SEO template"),
+      );
+      expect(validationCalls).toHaveLength(0);
     });
   });
 

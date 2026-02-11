@@ -14,6 +14,7 @@ service AdminService {
   entity ConfigModerationRules  as projection on auto.ConfigModerationRule;
   entity ConfigApiProviders     as projection on auto.ConfigApiProvider;
   entity ConfigAlerts           as projection on auto.ConfigAlert;
+  entity ConfigSeoTemplates     as projection on auto.ConfigSeoTemplate;
   @readonly entity ConfigRegistrationFields as projection on auto.ConfigRegistrationField;
   @readonly entity ConfigProfileFields      as projection on auto.ConfigProfileField;
   @readonly entity ApiCallLogs              as projection on auto.ApiCallLog;

@@ -44,6 +44,7 @@ const CONFIG_TABLES = [
   "ConfigRegistrationField",
   "ConfigProfileField",
   "ConfigAlert",
+  "ConfigSeoTemplate",
 ] as const;
 
 /**
@@ -66,6 +67,7 @@ const KEY_FIELD_MAP: Record<string, string | string[]> = {
   ConfigRegistrationField: "fieldName",
   ConfigProfileField: "fieldName",
   ConfigAlert: "name",
+  ConfigSeoTemplate: ["pageType", "language"],
 };
 
 /**

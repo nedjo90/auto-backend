@@ -110,6 +110,20 @@ entity ConfigApiProvider : cuid, managed {
   active           : Boolean default true;
 }
 
+// ─── SEO template configuration (Story 2-6) ─────────────────────────────
+
+@assert.unique: {pageType_language: [pageType, language]}
+entity ConfigSeoTemplate : cuid, managed {
+  pageType                : String(30);  // listing_detail, search_results, brand_page, model_page, city_page, landing_page
+  metaTitleTemplate       : String(500);
+  metaDescriptionTemplate : String(1000);
+  ogTitleTemplate         : String(500);
+  ogDescriptionTemplate   : String(1000);
+  canonicalUrlPattern     : String(500);
+  language                : String(5) default 'fr';
+  active                  : Boolean default true;
+}
+
 // ─── Alert configuration (Story 2-5) ────────────────────────────────────
 
 @assert.unique: {name: [name]}

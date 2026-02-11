@@ -14,6 +14,7 @@ const mockEntities: Record<string, string> = {
   ConfigRegistrationField: "ConfigRegistrationField",
   ConfigProfileField: "ConfigProfileField",
   ConfigAlert: "ConfigAlert",
+  ConfigSeoTemplate: "ConfigSeoTemplate",
 };
 
 const mockRun = jest.fn();
@@ -62,11 +63,11 @@ describe("InMemoryConfigCache", () => {
     expect(configCache.isReady()).toBe(true);
   });
 
-  it("should load data from all 13 config tables on refresh", async () => {
+  it("should load data from all 14 config tables on refresh", async () => {
     mockRun.mockResolvedValue([]);
     await configCache.refresh();
-    // 13 tables: 10 from story + ConfigRegistrationField + ConfigProfileField + ConfigAlert
-    expect(mockRun).toHaveBeenCalledTimes(13);
+    // 14 tables: 10 original + ConfigRegistrationField + ConfigProfileField + ConfigAlert + ConfigSeoTemplate
+    expect(mockRun).toHaveBeenCalledTimes(14);
   });
 
   it("should return cached items by key after refresh", async () => {
@@ -75,8 +76,8 @@ describe("InMemoryConfigCache", () => {
       { ID: "p1", key: "session.timeout", value: "30" },
       { ID: "p2", key: "listing.price", value: "15" },
     ]);
-    // Remaining 12 tables return empty
-    for (let i = 0; i < 12; i++) {
+    // Remaining 13 tables return empty
+    for (let i = 0; i < 13; i++) {
       mockRun.mockResolvedValueOnce([]);
     }
 
@@ -94,7 +95,7 @@ describe("InMemoryConfigCache", () => {
       { ID: "p1", key: "a", value: "1" },
       { ID: "p2", key: "b", value: "2" },
     ]);
-    for (let i = 0; i < 11; i++) {
+    for (let i = 0; i < 12; i++) {
       mockRun.mockResolvedValueOnce([]);
     }
 
@@ -116,7 +117,7 @@ describe("InMemoryConfigCache", () => {
 
   it("should invalidate a specific table", async () => {
     mockRun.mockResolvedValueOnce([{ ID: "p1", key: "a", value: "1" }]);
-    for (let i = 0; i < 11; i++) {
+    for (let i = 0; i < 12; i++) {
       mockRun.mockResolvedValueOnce([]);
     }
 
@@ -162,7 +163,7 @@ describe("InMemoryConfigCache", () => {
       { ID: "f1", code: "favorites", name: "Favorites", isActive: true },
     ]);
     // Remaining 11 tables
-    for (let i = 0; i < 11; i++) {
+    for (let i = 0; i < 12; i++) {
       mockRun.mockResolvedValueOnce([]);
     }
 
@@ -181,7 +182,7 @@ describe("InMemoryConfigCache", () => {
       { ID: "t2", key: "home.title", language: "en", value: "Welcome" },
     ]);
     // Remaining 11 tables
-    for (let i = 0; i < 11; i++) {
+    for (let i = 0; i < 12; i++) {
       mockRun.mockResolvedValueOnce([]);
     }
 
@@ -212,7 +213,7 @@ describe("InMemoryConfigCache", () => {
     // First table succeeds
     mockRun.mockResolvedValueOnce([]);
     // Rest fail
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; i < 13; i++) {
       mockRun.mockRejectedValueOnce(new Error("DB error"));
     }
     await configCache.refresh();
@@ -235,6 +236,45 @@ describe("InMemoryConfigCache", () => {
     await configCache.refreshTable("ConfigParameter");
     expect(configCache.get("ConfigParameter", "new")).toBeDefined();
     expect(configCache.get("ConfigParameter", "old")).toBeUndefined();
+  });
+
+  it("should use composite key (pageType:language) for ConfigSeoTemplate", async () => {
+    mockRun.mockResolvedValue([]);
+    await configCache.refresh();
+    mockRun.mockClear();
+
+    mockRun.mockResolvedValueOnce([
+      {
+        ID: "s1",
+        pageType: "listing_detail",
+        language: "fr",
+        metaTitleTemplate: "Titre FR",
+        active: true,
+      },
+      {
+        ID: "s2",
+        pageType: "listing_detail",
+        language: "en",
+        metaTitleTemplate: "Title EN",
+        active: true,
+      },
+    ]);
+    await configCache.refreshTable("ConfigSeoTemplate");
+
+    const fr = configCache.get<{ metaTitleTemplate: string }>(
+      "ConfigSeoTemplate",
+      "listing_detail:fr",
+    );
+    expect(fr?.metaTitleTemplate).toBe("Titre FR");
+
+    const en = configCache.get<{ metaTitleTemplate: string }>(
+      "ConfigSeoTemplate",
+      "listing_detail:en",
+    );
+    expect(en?.metaTitleTemplate).toBe("Title EN");
+
+    const all = configCache.getAll("ConfigSeoTemplate");
+    expect(all).toHaveLength(2);
   });
 
   it("should be a singleton (same reference on re-import)", async () => {

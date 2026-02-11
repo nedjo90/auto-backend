@@ -152,6 +152,122 @@ describe("Shared Types (Task 1.4)", () => {
   });
 });
 
+describe("CDS Schema - ConfigSeoTemplate (Story 2-6, Task 1)", () => {
+  const configCds = fs.readFileSync(path.join(rootDir, "db/schema/config.cds"), "utf-8");
+
+  it("should define ConfigSeoTemplate entity with cuid and managed aspects", () => {
+    expect(configCds).toContain("entity ConfigSeoTemplate : cuid, managed");
+  });
+
+  it("should have all required fields", () => {
+    const requiredFields = [
+      "pageType",
+      "metaTitleTemplate",
+      "metaDescriptionTemplate",
+      "ogTitleTemplate",
+      "ogDescriptionTemplate",
+      "canonicalUrlPattern",
+      "language",
+      "active",
+    ];
+    for (const field of requiredFields) {
+      expect(configCds).toContain(field);
+    }
+  });
+
+  it("should have unique constraint on pageType and language", () => {
+    expect(configCds).toContain("pageType_language: [pageType, language]");
+  });
+
+  it("should default language to fr", () => {
+    // Find the ConfigSeoTemplate section and check default
+    const seoSection = configCds.substring(configCds.indexOf("entity ConfigSeoTemplate"));
+    expect(seoSection).toContain("default 'fr'");
+  });
+
+  it("should default active to true", () => {
+    const seoSection = configCds.substring(configCds.indexOf("entity ConfigSeoTemplate"));
+    expect(seoSection).toContain("default true");
+  });
+});
+
+describe("Seed Data - ConfigSeoTemplate (Story 2-6, Task 1)", () => {
+  const csvPath = path.join(rootDir, "db/data/auto-ConfigSeoTemplate.csv");
+
+  it("should have seed data CSV file", () => {
+    expect(fs.existsSync(csvPath)).toBe(true);
+  });
+
+  it("should have CSV header with all entity columns", () => {
+    const csv = fs.readFileSync(csvPath, "utf-8");
+    const header = csv.split("\n")[0];
+    const expectedColumns = [
+      "ID",
+      "pageType",
+      "metaTitleTemplate",
+      "metaDescriptionTemplate",
+      "ogTitleTemplate",
+      "ogDescriptionTemplate",
+      "canonicalUrlPattern",
+      "language",
+      "active",
+    ];
+    for (const col of expectedColumns) {
+      expect(header).toContain(col);
+    }
+  });
+
+  it("should contain templates for all 6 page types", () => {
+    const csv = fs.readFileSync(csvPath, "utf-8");
+    const pageTypes = [
+      "listing_detail",
+      "search_results",
+      "brand_page",
+      "model_page",
+      "city_page",
+      "landing_page",
+    ];
+    for (const pt of pageTypes) {
+      expect(csv).toContain(pt);
+    }
+  });
+
+  it("should have 6 data rows (one per page type)", () => {
+    const csv = fs.readFileSync(csvPath, "utf-8");
+    const lines = csv.trim().split("\n").slice(1);
+    expect(lines.length).toBe(6);
+  });
+
+  it("should have all templates in French (language=fr)", () => {
+    const csv = fs.readFileSync(csvPath, "utf-8");
+    const lines = csv.trim().split("\n").slice(1);
+    for (const line of lines) {
+      const parts = line.split(";");
+      const language = parts[7];
+      expect(language).toBe("fr");
+    }
+  });
+
+  it("should have all templates active", () => {
+    const csv = fs.readFileSync(csvPath, "utf-8");
+    const lines = csv.trim().split("\n").slice(1);
+    for (const line of lines) {
+      const parts = line.split(";");
+      const active = parts[8];
+      expect(active).toBe("true");
+    }
+  });
+
+  it("should use placeholder syntax in templates", () => {
+    const csv = fs.readFileSync(csvPath, "utf-8");
+    expect(csv).toContain("{{brand}}");
+    expect(csv).toContain("{{model}}");
+    expect(csv).toContain("{{year}}");
+    expect(csv).toContain("{{city}}");
+    expect(csv).toContain("{{price}}");
+  });
+});
+
 describe("CDS Build Validation", () => {
   it("should have generated TypeScript models for auto namespace", () => {
     const modelsPath = path.join(rootDir, "@cds-models/auto/index.ts");

@@ -3,7 +3,7 @@ import { configCache } from "./lib/config-cache";
 import { logAudit } from "./lib/audit-logger";
 import { invalidateAdapter } from "./adapters/factory/adapter-factory";
 import { signalrClient } from "./lib/signalr-client";
-import { configAlertInputSchema } from "@auto/shared";
+import { configAlertInputSchema, configSeoTemplateInputSchema } from "@auto/shared";
 
 const LOG = cds.log("admin");
 
@@ -22,6 +22,7 @@ const ENTITY_TABLE_MAP: Record<string, string> = {
   ConfigModerationRules: "ConfigModerationRule",
   ConfigApiProviders: "ConfigApiProvider",
   ConfigAlerts: "ConfigAlert",
+  ConfigSeoTemplates: "ConfigSeoTemplate",
 };
 
 const CONFIG_ENTITIES = Object.keys(ENTITY_TABLE_MAP);
@@ -40,6 +41,9 @@ export default class AdminServiceHandler extends cds.ApplicationService {
 
     // Validate ConfigAlerts input with Zod schema
     this.before(["CREATE", "UPDATE"], "ConfigAlerts", this.validateAlertInput);
+
+    // Validate ConfigSeoTemplates input with Zod schema
+    this.before(["CREATE", "UPDATE"], "ConfigSeoTemplates", this.validateSeoTemplateInput);
 
     // Register action handlers
     this.on("estimateConfigImpact", this.handleEstimateImpact);
@@ -66,6 +70,17 @@ export default class AdminServiceHandler extends cds.ApplicationService {
     if (!result.success) {
       const errors = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`);
       req.reject(400, `Invalid alert configuration: ${errors.join("; ")}`);
+    }
+  };
+
+  /**
+   * BEFORE handler: validate ConfigSeoTemplate input with Zod schema.
+   */
+  private validateSeoTemplateInput = (req: cds.Request) => {
+    const result = configSeoTemplateInputSchema.safeParse(req.data);
+    if (!result.success) {
+      const errors = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`);
+      req.reject(400, `Invalid SEO template configuration: ${errors.join("; ")}`);
     }
   };
 
