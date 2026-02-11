@@ -38,7 +38,7 @@ describe("SignalRClient", () => {
     expect(signalrClient.isConfigured()).toBe(true);
   });
 
-  it("should broadcast to SignalR REST API", async () => {
+  it("should broadcast to SignalR REST API with valid JWT", async () => {
     process.env.SIGNALR_CONNECTION_STRING =
       "Endpoint=https://test.service.signalr.net;AccessKey=testkey123;Version=1.0";
     signalrClient.initialize();
@@ -56,6 +56,19 @@ describe("SignalRClient", () => {
         }),
       }),
     );
+
+    // Verify the Authorization header contains a valid JWT (3 base64url parts)
+    const callArgs = (global.fetch as jest.Mock).mock.calls[0][1];
+    const authHeader = callArgs.headers.Authorization as string;
+    expect(authHeader).toMatch(/^Bearer [A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+
+    // Decode and verify JWT payload
+    const token = authHeader.replace("Bearer ", "");
+    const [, payloadB64] = token.split(".");
+    const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString());
+    expect(payload.aud).toBe("https://test.service.signalr.net/api/v1/hubs/admin");
+    expect(payload.iat).toBeDefined();
+    expect(payload.exp).toBe(payload.iat + 3600);
   });
 
   it("should skip broadcast when not configured", async () => {

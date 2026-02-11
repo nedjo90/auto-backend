@@ -121,8 +121,10 @@ export default class AdminServiceHandler extends cds.ApplicationService {
 
   /**
    * Emit a KPI update event via SignalR to connected admin clients.
+   * NOTE: Infrastructure only — will be wired to CDS AFTER handlers
+   * when Listing, Contact, Sale entities are added in future epics.
    */
-  private async emitKpiUpdate(event: string, data: Record<string, unknown>): Promise<void> {
+  async emitKpiUpdate(event: string, data: Record<string, unknown>): Promise<void> {
     try {
       await signalrClient.broadcast("kpiUpdate", {
         event,
@@ -516,50 +518,7 @@ export default class AdminServiceHandler extends cds.ApplicationService {
     }
 
     try {
-      const entities = cds.entities("auto");
-
-      // Map metrics to entities and timestamp fields
-      const metricConfig: Record<string, { entity: unknown; timestampField: string }> = {
-        visitors: { entity: entities["AuditLog"], timestampField: "timestamp" },
-        registrations: { entity: entities["User"], timestampField: "createdAt" },
-      };
-
-      const config = metricConfig[metric];
-      if (!config?.entity) {
-        // Return empty array for metrics without backing entities
-        return this.generateEmptyTrend(days);
-      }
-
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - days);
-      const startStr = startDate.toISOString();
-
-      const rows = (await cds.run(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        SELECT.from(config.entity as any).where({
-          [config.timestampField]: { ">=": startStr },
-        }),
-      )) as { [key: string]: string }[];
-
-      // Aggregate by date
-      const countByDate = new Map<string, number>();
-      for (let i = 0; i < days; i++) {
-        const d = new Date();
-        d.setDate(d.getDate() - days + i + 1);
-        countByDate.set(d.toISOString().split("T")[0], 0);
-      }
-
-      for (const row of rows || []) {
-        const ts = row[config.timestampField];
-        if (ts) {
-          const dateKey = new Date(ts).toISOString().split("T")[0];
-          if (countByDate.has(dateKey)) {
-            countByDate.set(dateKey, (countByDate.get(dateKey) || 0) + 1);
-          }
-        }
-      }
-
-      return Array.from(countByDate.entries()).map(([date, value]) => ({ date, value }));
+      return await this.aggregateMetricByDate(metric, days);
     } catch (err) {
       LOG.error("Failed to compute dashboard trend:", err);
       return req.reject(500, "Failed to compute dashboard trend");
@@ -583,52 +542,64 @@ export default class AdminServiceHandler extends cds.ApplicationService {
     const days = period === "day" ? 1 : period === "week" ? 7 : 30;
 
     try {
-      const entities = cds.entities("auto");
-
-      const metricConfig: Record<string, { entity: unknown; timestampField: string }> = {
-        visitors: { entity: entities["AuditLog"], timestampField: "timestamp" },
-        registrations: { entity: entities["User"], timestampField: "createdAt" },
-      };
-
-      const config = metricConfig[metric];
-      if (!config?.entity) {
-        return this.generateEmptyTrend(days);
-      }
-
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - days);
-      const startStr = startDate.toISOString();
-
-      const rows = (await cds.run(
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        SELECT.from(config.entity as any).where({
-          [config.timestampField]: { ">=": startStr },
-        }),
-      )) as { [key: string]: string }[];
-
-      const countByDate = new Map<string, number>();
-      for (let i = 0; i < days; i++) {
-        const d = new Date();
-        d.setDate(d.getDate() - days + i + 1);
-        countByDate.set(d.toISOString().split("T")[0], 0);
-      }
-
-      for (const row of rows || []) {
-        const ts = row[config.timestampField];
-        if (ts) {
-          const dateKey = new Date(ts).toISOString().split("T")[0];
-          if (countByDate.has(dateKey)) {
-            countByDate.set(dateKey, (countByDate.get(dateKey) || 0) + 1);
-          }
-        }
-      }
-
-      return Array.from(countByDate.entries()).map(([date, value]) => ({ date, value }));
+      return await this.aggregateMetricByDate(metric, days);
     } catch (err) {
       LOG.error("Failed to compute KPI drill-down:", err);
       return req.reject(500, "Failed to compute KPI drill-down");
     }
   };
+
+  /**
+   * Shared aggregation: query a metric's entity and bucket rows by date.
+   * Used by both getDashboardTrend and getKpiDrillDown.
+   */
+  private async aggregateMetricByDate(
+    metric: string,
+    days: number,
+  ): Promise<{ date: string; value: number }[]> {
+    const entities = cds.entities("auto");
+
+    const metricConfig: Record<string, { entity: unknown; timestampField: string }> = {
+      visitors: { entity: entities["AuditLog"], timestampField: "timestamp" },
+      registrations: { entity: entities["User"], timestampField: "createdAt" },
+    };
+
+    const config = metricConfig[metric];
+    if (!config?.entity) {
+      return this.generateEmptyTrend(days);
+    }
+
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    const startStr = startDate.toISOString();
+
+    const rows = (await cds.run(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      SELECT.from(config.entity as any).where({
+        [config.timestampField]: { ">=": startStr },
+      }),
+    )) as { [key: string]: string }[];
+
+    // Aggregate by date
+    const countByDate = new Map<string, number>();
+    for (let i = 0; i < days; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() - days + i + 1);
+      countByDate.set(d.toISOString().split("T")[0], 0);
+    }
+
+    for (const row of rows || []) {
+      const ts = row[config.timestampField];
+      if (ts) {
+        const dateKey = new Date(ts).toISOString().split("T")[0];
+        if (countByDate.has(dateKey)) {
+          countByDate.set(dateKey, (countByDate.get(dateKey) || 0) + 1);
+        }
+      }
+    }
+
+    return Array.from(countByDate.entries()).map(([date, value]) => ({ date, value }));
+  }
 
   /**
    * Generate empty trend data (zeros) for N days.

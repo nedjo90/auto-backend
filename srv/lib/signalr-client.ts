@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import cds from "@sap/cds";
 
 const LOG = cds.log("signalr");
@@ -94,12 +95,25 @@ class SignalRClient {
   }
 
   /**
-   * Generate a simple JWT token for Azure SignalR REST API.
-   * In production, use proper JWT signing with the access key.
+   * Generate an HS256-signed JWT for Azure SignalR REST API authentication.
+   * Token includes audience (hub URL) and expiration (1 hour).
    */
   private generateToken(): string {
-    // Simplified token generation - in production use jsonwebtoken or jose
-    return Buffer.from(`${this.accessKey}:${Date.now()}`).toString("base64");
+    const now = Math.floor(Date.now() / 1000);
+    const hubUrl = `${this.endpoint}/api/v1/hubs/${this.hubName}`;
+
+    const header = this.base64url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
+    const payload = this.base64url(JSON.stringify({ aud: hubUrl, iat: now, exp: now + 3600 }));
+    const signature = this.base64url(
+      crypto.createHmac("sha256", this.accessKey).update(`${header}.${payload}`).digest(),
+    );
+
+    return `${header}.${payload}.${signature}`;
+  }
+
+  private base64url(input: string | Buffer): string {
+    const buf = typeof input === "string" ? Buffer.from(input) : input;
+    return buf.toString("base64url");
   }
 
   /** Check if SignalR is configured and available. */
