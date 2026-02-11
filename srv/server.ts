@@ -1,7 +1,7 @@
 import cds from "@sap/cds";
 import { createAuthMiddleware } from "./middleware/auth-middleware";
 import { configCache } from "./lib/config-cache";
-import { startPeriodicEvaluation } from "./lib/alert-evaluator";
+import { startPeriodicEvaluation, stopPeriodicEvaluation } from "./lib/alert-evaluator";
 
 const LOG = cds.log("server");
 
@@ -20,6 +20,10 @@ cds.on("served", async () => {
   } catch (err) {
     LOG.error("Failed to initialize config cache:", err);
   }
+});
+
+cds.on("shutdown", () => {
+  stopPeriodicEvaluation();
 });
 
 export default cds.server;

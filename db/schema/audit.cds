@@ -26,6 +26,8 @@ entity ApiCallLog : cuid {
 }
 
 entity AlertEvent : cuid {
+  // Loose string reference (not Association) because auto-alerts from api-logger
+  // use synthetic IDs (e.g., "auto-provider-name") with no corresponding ConfigAlert row.
   alertId        : String(36);
   metric         : String(100);
   currentValue   : Decimal(15, 4);

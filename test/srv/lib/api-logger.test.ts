@@ -18,7 +18,9 @@ jest.mock("@sap/cds", () => {
   };
 });
 
-const mockCreateAlertEvent = jest.fn().mockResolvedValue("auto-alert-uuid");
+const mockCreateAlertEvent = jest
+  .fn()
+  .mockResolvedValue({ id: "auto-alert-uuid", message: "test alert message" });
 jest.mock("../../../srv/lib/alert-evaluator", () => ({
   createAlertEvent: (...args: any[]) => mockCreateAlertEvent(...args),
 }));
@@ -45,7 +47,9 @@ describe("api-logger", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockRun.mockReset();
-    mockCreateAlertEvent.mockReset().mockResolvedValue("auto-alert-uuid");
+    mockCreateAlertEvent
+      .mockReset()
+      .mockResolvedValue({ id: "auto-alert-uuid", message: "test alert message" });
     mockSendNotification.mockReset().mockResolvedValue(undefined);
     resetFailureCounters();
   });

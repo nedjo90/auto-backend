@@ -38,10 +38,21 @@ jest.mock("../../../srv/lib/alert-notifier", () => ({
   sendAlertNotification: (...args: any[]) => mockSendNotification(...args),
 }));
 
-(global as any).SELECT = {
-  from: jest.fn().mockReturnValue({
-    where: jest.fn().mockReturnValue("select-query"),
+const mockSelectQuery = {
+  where: jest.fn().mockReturnValue("select-query"),
+  columns: jest.fn().mockReturnValue({
+    where: jest.fn().mockReturnValue("select-one-query"),
   }),
+};
+(global as any).SELECT = {
+  from: jest.fn().mockReturnValue(mockSelectQuery),
+  one: {
+    from: jest.fn().mockReturnValue({
+      columns: jest.fn().mockReturnValue({
+        where: jest.fn().mockReturnValue("select-one-query"),
+      }),
+    }),
+  },
 };
 
 (global as any).INSERT = {
@@ -105,26 +116,23 @@ describe("AlertEvaluator", () => {
     });
 
     it("should evaluate api_availability from success rate", async () => {
-      mockRun.mockResolvedValueOnce([
-        { httpStatus: 200 },
-        { httpStatus: 200 },
-        { httpStatus: 500 },
-        { httpStatus: 200 },
-      ]);
+      mockRun
+        .mockResolvedValueOnce({ cnt: 4 }) // total count
+        .mockResolvedValueOnce({ cnt: 3 }); // success count
 
       const result = await evaluateMetric("api_availability");
       expect(result!.value).toBe(75); // 3/4 = 75%
     });
 
     it("should return 100% availability when no logs", async () => {
-      mockRun.mockResolvedValueOnce([]);
+      mockRun.mockResolvedValueOnce({ cnt: 0 }); // total count = 0
 
       const result = await evaluateMetric("api_availability");
       expect(result!.value).toBe(100);
     });
 
     it("should evaluate daily_registrations from User count", async () => {
-      mockRun.mockResolvedValueOnce([{}, {}, {}]); // 3 users
+      mockRun.mockResolvedValueOnce({ cnt: 3 }); // 3 users
 
       const result = await evaluateMetric("daily_registrations");
       expect(result!.value).toBe(3);
@@ -173,9 +181,11 @@ describe("AlertEvaluator", () => {
       expect(isThresholdBreached(5, 5, "below")).toBe(false);
     });
 
-    it("should detect 'equals' threshold match", () => {
+    it("should detect 'equals' threshold match with epsilon tolerance", () => {
       expect(isThresholdBreached(5, 5, "equals")).toBe(true);
       expect(isThresholdBreached(5, 6, "equals")).toBe(false);
+      // Floating-point edge case: 0.1 + 0.2 should equal 0.3
+      expect(isThresholdBreached(0.1 + 0.2, 0.3, "equals")).toBe(true);
     });
 
     it("should return false for unknown operator", () => {
@@ -216,25 +226,37 @@ describe("AlertEvaluator", () => {
     it("should create alert event and update lastTriggeredAt", async () => {
       mockRun.mockResolvedValue(undefined);
 
-      const id = await createAlertEvent(mockAlert, 5);
-      expect(id).toBe("test-uuid");
+      const result = await createAlertEvent(mockAlert, 5);
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe("test-uuid");
+      expect(result!.message).toContain("Test Alert");
       expect(mockRun).toHaveBeenCalledTimes(2); // INSERT + UPDATE
       expect(mockRefreshTable).toHaveBeenCalledWith("ConfigAlert");
+    });
+
+    it("should skip UPDATE for synthetic auto-alert IDs", async () => {
+      mockRun.mockResolvedValue(undefined);
+      const syntheticAlert = { ...mockAlert, ID: "auto-test-provider" };
+
+      const result = await createAlertEvent(syntheticAlert, 5);
+      expect(result).not.toBeNull();
+      expect(mockRun).toHaveBeenCalledTimes(1); // INSERT only, no UPDATE
+      expect(mockRefreshTable).not.toHaveBeenCalled();
     });
 
     it("should return null when AlertEvent entity missing", async () => {
       const cds = require("@sap/cds").default;
       cds.entities.mockReturnValueOnce({});
 
-      const id = await createAlertEvent(mockAlert, 5);
-      expect(id).toBeNull();
+      const result = await createAlertEvent(mockAlert, 5);
+      expect(result).toBeNull();
     });
 
     it("should return null on error", async () => {
       mockRun.mockRejectedValueOnce(new Error("INSERT failed"));
 
-      const id = await createAlertEvent(mockAlert, 5);
-      expect(id).toBeNull();
+      const result = await createAlertEvent(mockAlert, 5);
+      expect(result).toBeNull();
     });
   });
 

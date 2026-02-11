@@ -24,6 +24,7 @@ interface FailureState {
 }
 
 const FAILURE_THRESHOLD = 3;
+const MAX_TRACKED_PROVIDERS = 1000;
 const failureCounters = new Map<string, FailureState>();
 
 /**
@@ -52,12 +53,17 @@ async function trackProviderFailure(entry: ApiCallEntry): Promise<void> {
 
   if (isFailure) {
     state.count++;
+    // Evict oldest entry if map exceeds cap
+    if (!failureCounters.has(entry.providerKey) && failureCounters.size >= MAX_TRACKED_PROVIDERS) {
+      const oldestKey = failureCounters.keys().next().value;
+      if (oldestKey) failureCounters.delete(oldestKey);
+    }
     failureCounters.set(entry.providerKey, state);
 
     if (state.count === FAILURE_THRESHOLD) {
       // Trigger auto-alert
       try {
-        const alertEventId = await createAlertEvent(
+        const alertResult = await createAlertEvent(
           {
             ID: `auto-${entry.providerKey}`,
             name: `API Provider Failure: ${entry.providerKey}`,
@@ -73,15 +79,15 @@ async function trackProviderFailure(entry: ApiCallEntry): Promise<void> {
           state.count,
         );
 
-        if (alertEventId) {
+        if (alertResult) {
           await sendAlertNotification({
-            alertEventId,
+            alertEventId: alertResult.id,
             alertName: `API Provider Failure: ${entry.providerKey}`,
             metric: "api_availability",
             currentValue: state.count,
             thresholdValue: FAILURE_THRESHOLD,
             severity: "critical",
-            message: `API provider "${entry.providerKey}" has ${state.count} consecutive failures. Last success: ${state.lastSuccessAt || "never"}`,
+            message: alertResult.message,
             notificationMethod: "both",
           });
         }

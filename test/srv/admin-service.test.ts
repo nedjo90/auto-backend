@@ -63,6 +63,12 @@ jest.mock("@sap/cds", () => {
 const cds = require("@sap/cds").default;
 const mockRun = cds.run as jest.Mock;
 
+const selectFromWhereResult = {
+  orderBy: jest.fn().mockReturnValue({
+    limit: jest.fn().mockReturnValue("select-from-where-ordered-query"),
+  }),
+  toString: () => "select-from-where-query",
+};
 (global as any).SELECT = {
   one: {
     from: jest.fn().mockReturnValue({
@@ -70,7 +76,7 @@ const mockRun = cds.run as jest.Mock;
     }),
   },
   from: jest.fn().mockReturnValue({
-    where: jest.fn().mockReturnValue("select-from-where-query"),
+    where: jest.fn().mockReturnValue(selectFromWhereResult),
   }),
 };
 

@@ -63,18 +63,30 @@ export async function evaluateMetric(metric: string): Promise<MetricResult | nul
 
         const oneDayAgo = new Date();
         oneDayAgo.setDate(oneDayAgo.getDate() - 1);
-        const logs = (await cds.run(
-          SELECT.from(ApiCallLog).where({
-            timestamp: { ">=": oneDayAgo.toISOString() },
-          }),
-        )) as { httpStatus: number }[];
+        const totalResult = (await cds.run(
+          SELECT.one
+            .from(ApiCallLog)
+            .columns("count(*) as cnt")
+            .where({
+              timestamp: { ">=": oneDayAgo.toISOString() },
+            }),
+        )) as { cnt: number } | null;
 
-        if (!logs?.length) return { metric, value: 100 };
+        const totalCount = totalResult?.cnt || 0;
+        if (totalCount === 0) return { metric, value: 100 };
 
-        const successCount = logs.filter(
-          (log) => log.httpStatus >= 200 && log.httpStatus < 300,
-        ).length;
-        return { metric, value: Number(((successCount / logs.length) * 100).toFixed(2)) };
+        const successResult = (await cds.run(
+          SELECT.one
+            .from(ApiCallLog)
+            .columns("count(*) as cnt")
+            .where({
+              timestamp: { ">=": oneDayAgo.toISOString() },
+              httpStatus: { ">=": 200, "<": 300 },
+            }),
+        )) as { cnt: number } | null;
+
+        const successCount = successResult?.cnt || 0;
+        return { metric, value: Number(((successCount / totalCount) * 100).toFixed(2)) };
       }
 
       case "daily_registrations": {
@@ -83,11 +95,16 @@ export async function evaluateMetric(metric: string): Promise<MetricResult | nul
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-        const rows = (await cds.run(
-          SELECT.from(User).where({ createdAt: { ">=": today.toISOString() } }),
-        )) as unknown[];
+        const result = (await cds.run(
+          SELECT.one
+            .from(User)
+            .columns("count(*) as cnt")
+            .where({
+              createdAt: { ">=": today.toISOString() },
+            }),
+        )) as { cnt: number } | null;
 
-        return { metric, value: rows?.length || 0 };
+        return { metric, value: result?.cnt || 0 };
       }
 
       case "daily_listings": {
@@ -97,11 +114,16 @@ export async function evaluateMetric(metric: string): Promise<MetricResult | nul
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-        const rows = (await cds.run(
-          SELECT.from(Listing).where({ createdAt: { ">=": today.toISOString() } }),
-        )) as unknown[];
+        const result = (await cds.run(
+          SELECT.one
+            .from(Listing)
+            .columns("count(*) as cnt")
+            .where({
+              createdAt: { ">=": today.toISOString() },
+            }),
+        )) as { cnt: number } | null;
 
-        return { metric, value: rows?.length || 0 };
+        return { metric, value: result?.cnt || 0 };
       }
 
       case "daily_revenue": {
@@ -111,12 +133,16 @@ export async function evaluateMetric(metric: string): Promise<MetricResult | nul
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-        const rows = (await cds.run(
-          SELECT.from(Payment).where({ createdAt: { ">=": today.toISOString() } }),
-        )) as { amount: number }[];
+        const result = (await cds.run(
+          SELECT.one
+            .from(Payment)
+            .columns("sum(amount) as total")
+            .where({
+              createdAt: { ">=": today.toISOString() },
+            }),
+        )) as { total: number | null } | null;
 
-        const total = (rows || []).reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
-        return { metric, value: Number(total.toFixed(2)) };
+        return { metric, value: Number((result?.total || 0).toFixed(2)) };
       }
 
       default:
@@ -143,7 +169,7 @@ export function isThresholdBreached(
     case "below":
       return currentValue < thresholdValue;
     case "equals":
-      return currentValue === thresholdValue;
+      return Math.abs(currentValue - thresholdValue) < 1e-6;
     default:
       return false;
   }
@@ -159,13 +185,18 @@ export function isCooldownActive(lastTriggeredAt: string | null, cooldownMinutes
   return Date.now() - lastTriggered < cooldownMs;
 }
 
+export interface AlertEventResult {
+  id: string;
+  message: string;
+}
+
 /**
  * Create an AlertEvent record in the database.
  */
 export async function createAlertEvent(
   alert: ConfigAlertRow,
   currentValue: number,
-): Promise<string | null> {
+): Promise<AlertEventResult | null> {
   try {
     const entities = cds.entities("auto");
     const AlertEvent = entities["AlertEvent"];
@@ -198,19 +229,22 @@ export async function createAlertEvent(
       }),
     );
 
-    // Update lastTriggeredAt on the alert
-    const ConfigAlert = entities["ConfigAlert"];
-    if (ConfigAlert) {
-      await cds.run(
-        UPDATE(ConfigAlert)
-          .set({ lastTriggeredAt: new Date().toISOString() })
-          .where({ ID: alert.ID }),
-      );
-      await configCache.refreshTable("ConfigAlert");
+    // Update lastTriggeredAt on the alert (skip for synthetic auto-alerts)
+    const isSynthetic = alert.ID.startsWith("auto-");
+    if (!isSynthetic) {
+      const ConfigAlert = entities["ConfigAlert"];
+      if (ConfigAlert) {
+        await cds.run(
+          UPDATE(ConfigAlert)
+            .set({ lastTriggeredAt: new Date().toISOString() })
+            .where({ ID: alert.ID }),
+        );
+        await configCache.refreshTable("ConfigAlert");
+      }
     }
 
     LOG.info(`Alert triggered: ${message}`);
-    return id;
+    return { id, message };
   } catch (err) {
     LOG.error("Failed to create alert event:", err);
     return null;
@@ -232,25 +266,19 @@ export async function runEvaluationCycle(): Promise<string[]> {
     const result = await evaluateMetric(alert.metric);
     if (!result) continue;
 
-    if (isThresholdBreached(result.value, Number(alert.thresholdValue), alert.comparisonOperator)) {
-      const eventId = await createAlertEvent(alert, result.value);
-      if (eventId) {
-        triggeredIds.push(eventId);
-        // Send notification
-        const operatorLabel =
-          alert.comparisonOperator === "above"
-            ? "above"
-            : alert.comparisonOperator === "below"
-              ? "below"
-              : "equal to";
+    const threshold = Number(alert.thresholdValue);
+    if (isThresholdBreached(result.value, threshold, alert.comparisonOperator)) {
+      const eventResult = await createAlertEvent(alert, result.value);
+      if (eventResult) {
+        triggeredIds.push(eventResult.id);
         await sendAlertNotification({
-          alertEventId: eventId,
+          alertEventId: eventResult.id,
           alertName: alert.name,
           metric: alert.metric,
           currentValue: result.value,
-          thresholdValue: Number(alert.thresholdValue),
+          thresholdValue: threshold,
           severity: alert.severityLevel,
-          message: `Alert "${alert.name}": ${alert.metric} is ${result.value} (${operatorLabel} threshold ${alert.thresholdValue})`,
+          message: eventResult.message,
           notificationMethod: alert.notificationMethod,
         });
       }

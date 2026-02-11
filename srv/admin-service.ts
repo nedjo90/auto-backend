@@ -3,6 +3,7 @@ import { configCache } from "./lib/config-cache";
 import { logAudit } from "./lib/audit-logger";
 import { invalidateAdapter } from "./adapters/factory/adapter-factory";
 import { signalrClient } from "./lib/signalr-client";
+import { configAlertInputSchema } from "@auto/shared";
 
 const LOG = cds.log("admin");
 
@@ -37,6 +38,9 @@ export default class AdminServiceHandler extends cds.ApplicationService {
       this.after(["CREATE", "UPDATE", "DELETE"], entity, this.onConfigMutation.bind(this, entity));
     }
 
+    // Validate ConfigAlerts input with Zod schema
+    this.before(["CREATE", "UPDATE"], "ConfigAlerts", this.validateAlertInput);
+
     // Register action handlers
     this.on("estimateConfigImpact", this.handleEstimateImpact);
     this.on("getApiCostSummary", this.handleGetApiCostSummary);
@@ -53,6 +57,17 @@ export default class AdminServiceHandler extends cds.ApplicationService {
 
     await super.init();
   }
+
+  /**
+   * BEFORE handler: validate ConfigAlert input with Zod schema.
+   */
+  private validateAlertInput = (req: cds.Request) => {
+    const result = configAlertInputSchema.safeParse(req.data);
+    if (!result.success) {
+      const errors = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`);
+      req.reject(400, `Invalid alert configuration: ${errors.join("; ")}`);
+    }
+  };
 
   /**
    * BEFORE handler: capture old values for UPDATE/DELETE audit trail.
@@ -680,7 +695,9 @@ export default class AdminServiceHandler extends cds.ApplicationService {
         return [];
       }
 
-      const events = (await cds.run(SELECT.from(AlertEvent).where({ acknowledged: false }))) as {
+      const events = (await cds.run(
+        SELECT.from(AlertEvent).where({ acknowledged: false }).orderBy("createdAt desc").limit(50),
+      )) as {
         ID: string;
         alertId: string;
         metric: string;
