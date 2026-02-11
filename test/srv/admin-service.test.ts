@@ -47,7 +47,9 @@ jest.mock("@sap/cds", () => {
         ConfigChatAction: "ConfigChatAction",
         ConfigModerationRule: "ConfigModerationRule",
         ConfigApiProvider: "ConfigApiProvider",
+        ConfigAlert: "ConfigAlert",
         ApiCallLog: "ApiCallLog",
+        AlertEvent: "AlertEvent",
         User: "User",
         AuditLog: "AuditLog",
       })),
@@ -1104,6 +1106,98 @@ describe("AdminServiceHandler", () => {
       for (const point of result) {
         expect(point.value).toBe(0);
       }
+    });
+  });
+
+  describe("acknowledgeAlert", () => {
+    it("should register acknowledgeAlert handler", () => {
+      expect(registeredOnHandlers.has("acknowledgeAlert")).toBe(true);
+    });
+
+    it("should reject empty alertEventId", async () => {
+      const handler = registeredOnHandlers.get("acknowledgeAlert")![0];
+      const req: any = { data: { alertEventId: "" }, reject: jest.fn() };
+      await handler(req);
+      expect(req.reject).toHaveBeenCalledWith(400, "alertEventId is required");
+    });
+
+    it("should reject when alert event not found", async () => {
+      mockRun.mockResolvedValueOnce(null);
+      const handler = registeredOnHandlers.get("acknowledgeAlert")![0];
+      const req: any = {
+        data: { alertEventId: "evt-1" },
+        reject: jest.fn(),
+        user: { id: "admin-1" },
+      };
+      await handler(req);
+      expect(req.reject).toHaveBeenCalledWith(404, "Alert event not found");
+    });
+
+    it("should return success if already acknowledged", async () => {
+      mockRun.mockResolvedValueOnce({ ID: "evt-1", acknowledged: true });
+      const handler = registeredOnHandlers.get("acknowledgeAlert")![0];
+      const req: any = {
+        data: { alertEventId: "evt-1" },
+        reject: jest.fn(),
+        user: { id: "admin-1" },
+      };
+      const result = await handler(req);
+      expect(result).toEqual({ success: true, message: "Alert already acknowledged." });
+    });
+
+    it("should acknowledge an unacknowledged alert", async () => {
+      mockRun
+        .mockResolvedValueOnce({ ID: "evt-1", acknowledged: false })
+        .mockResolvedValueOnce(undefined); // UPDATE
+      const handler = registeredOnHandlers.get("acknowledgeAlert")![0];
+      const req: any = {
+        data: { alertEventId: "evt-1" },
+        reject: jest.fn(),
+        user: { id: "admin-1" },
+      };
+      const result = await handler(req);
+      expect(result).toEqual({ success: true, message: "Alert acknowledged." });
+      expect(mockLogAudit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "ALERT_ACKNOWLEDGED",
+          resource: "AlertEvent",
+        }),
+      );
+    });
+  });
+
+  describe("getActiveAlerts", () => {
+    it("should register getActiveAlerts handler", () => {
+      expect(registeredOnHandlers.has("getActiveAlerts")).toBe(true);
+    });
+
+    it("should return empty array when no unacknowledged alerts", async () => {
+      mockRun.mockResolvedValueOnce([]);
+      const handler = registeredOnHandlers.get("getActiveAlerts")![0];
+      const req: any = { reject: jest.fn() };
+      const result = await handler(req);
+      expect(result).toEqual([]);
+    });
+
+    it("should return unacknowledged alert events", async () => {
+      const alerts = [
+        {
+          ID: "e1",
+          alertId: "a1",
+          metric: "margin_per_listing",
+          currentValue: 5,
+          thresholdValue: 8,
+          severity: "critical",
+          message: "Margin below threshold",
+          createdAt: "2026-02-11T12:00:00Z",
+        },
+      ];
+      mockRun.mockResolvedValueOnce(alerts);
+      const handler = registeredOnHandlers.get("getActiveAlerts")![0];
+      const req: any = { reject: jest.fn() };
+      const result = await handler(req);
+      expect(result).toHaveLength(1);
+      expect(result[0].severity).toBe("critical");
     });
   });
 });

@@ -1,6 +1,7 @@
 import cds from "@sap/cds";
 import { createAuthMiddleware } from "./middleware/auth-middleware";
 import { configCache } from "./lib/config-cache";
+import { startPeriodicEvaluation } from "./lib/alert-evaluator";
 
 const LOG = cds.log("server");
 
@@ -14,6 +15,8 @@ cds.on("served", async () => {
   try {
     await configCache.refresh();
     LOG.info("Config cache initialized successfully");
+    // Start periodic alert evaluation (every 5 minutes)
+    startPeriodicEvaluation();
   } catch (err) {
     LOG.error("Failed to initialize config cache:", err);
   }

@@ -13,9 +13,11 @@ service AdminService {
   entity ConfigChatActions      as projection on auto.ConfigChatAction;
   entity ConfigModerationRules  as projection on auto.ConfigModerationRule;
   entity ConfigApiProviders     as projection on auto.ConfigApiProvider;
+  entity ConfigAlerts           as projection on auto.ConfigAlert;
   @readonly entity ConfigRegistrationFields as projection on auto.ConfigRegistrationField;
   @readonly entity ConfigProfileFields      as projection on auto.ConfigProfileField;
   @readonly entity ApiCallLogs              as projection on auto.ApiCallLog;
+  @readonly entity AlertEvents             as projection on auto.AlertEvent;
 
   /** Estimate impact of changing a config parameter */
   action estimateConfigImpact(parameterKey : String(100) not null) returns {
@@ -82,5 +84,23 @@ service AdminService {
   action getKpiDrillDown(metric : String(50) not null, period : String(20) not null) returns array of {
     date  : Date;
     value : Integer;
+  };
+
+  /** Acknowledge an alert event */
+  action acknowledgeAlert(alertEventId : String(36) not null) returns {
+    success : Boolean;
+    message : String;
+  };
+
+  /** Get unacknowledged alert events */
+  action getActiveAlerts() returns array of {
+    ID             : String;
+    alertId        : String;
+    metric         : String;
+    currentValue   : Decimal;
+    thresholdValue : Decimal;
+    severity       : String;
+    message        : String;
+    createdAt      : String;
   };
 }

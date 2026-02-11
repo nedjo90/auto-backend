@@ -109,3 +109,18 @@ entity ConfigApiProvider : cuid, managed {
   baseUrl          : String(500);
   active           : Boolean default true;
 }
+
+// ─── Alert configuration (Story 2-5) ────────────────────────────────────
+
+@assert.unique: {name}
+entity ConfigAlert : cuid, managed {
+  name               : String(200);
+  metric             : String(100);
+  thresholdValue     : Decimal(15, 4);
+  comparisonOperator : String(10);  // above, below, equals
+  notificationMethod : String(10);  // in_app, email, both
+  severityLevel      : String(10);  // info, warning, critical
+  enabled            : Boolean default true;
+  cooldownMinutes    : Integer default 60;
+  lastTriggeredAt    : Timestamp;
+}

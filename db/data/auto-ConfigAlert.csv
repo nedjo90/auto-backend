@@ -1,0 +1,4 @@
+ID;name;metric;thresholdValue;comparisonOperator;notificationMethod;severityLevel;enabled;cooldownMinutes
+a1b2c3d4-e5f6-7890-abcd-ef12345a0001;Marge par annonce critique;margin_per_listing;8;below;both;critical;true;30
+a1b2c3d4-e5f6-7890-abcd-ef12345a0002;Disponibilite API faible;api_availability;95;below;in_app;warning;true;60
+a1b2c3d4-e5f6-7890-abcd-ef12345a0003;Zero inscriptions 24h;daily_registrations;0;equals;email;warning;true;1440

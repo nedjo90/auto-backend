@@ -1,4 +1,6 @@
 import cds from "@sap/cds";
+import { createAlertEvent } from "./alert-evaluator";
+import { sendAlertNotification } from "./alert-notifier";
 
 const LOG = cds.log("api-logger");
 
@@ -13,6 +15,90 @@ export interface ApiCallEntry {
   listingId?: string;
   requestId?: string;
   errorMessage?: string;
+}
+
+/** Consecutive failure tracking per provider. */
+interface FailureState {
+  count: number;
+  lastSuccessAt: string | null;
+}
+
+const FAILURE_THRESHOLD = 3;
+const failureCounters = new Map<string, FailureState>();
+
+/**
+ * Get the current failure state for a provider.
+ */
+export function getFailureState(providerKey: string): FailureState | undefined {
+  return failureCounters.get(providerKey);
+}
+
+/**
+ * Reset all failure counters (for testing).
+ */
+export function resetFailureCounters(): void {
+  failureCounters.clear();
+}
+
+/**
+ * Track consecutive failures and trigger auto-alert when threshold is reached.
+ */
+async function trackProviderFailure(entry: ApiCallEntry): Promise<void> {
+  const isFailure = entry.httpStatus >= 400;
+  const state = failureCounters.get(entry.providerKey) || {
+    count: 0,
+    lastSuccessAt: null,
+  };
+
+  if (isFailure) {
+    state.count++;
+    failureCounters.set(entry.providerKey, state);
+
+    if (state.count === FAILURE_THRESHOLD) {
+      // Trigger auto-alert
+      try {
+        const alertEventId = await createAlertEvent(
+          {
+            ID: `auto-${entry.providerKey}`,
+            name: `API Provider Failure: ${entry.providerKey}`,
+            metric: "api_availability",
+            thresholdValue: FAILURE_THRESHOLD,
+            comparisonOperator: "equals",
+            notificationMethod: "both",
+            severityLevel: "critical",
+            enabled: true,
+            cooldownMinutes: 30,
+            lastTriggeredAt: null,
+          },
+          state.count,
+        );
+
+        if (alertEventId) {
+          await sendAlertNotification({
+            alertEventId,
+            alertName: `API Provider Failure: ${entry.providerKey}`,
+            metric: "api_availability",
+            currentValue: state.count,
+            thresholdValue: FAILURE_THRESHOLD,
+            severity: "critical",
+            message: `API provider "${entry.providerKey}" has ${state.count} consecutive failures. Last success: ${state.lastSuccessAt || "never"}`,
+            notificationMethod: "both",
+          });
+        }
+
+        LOG.warn(
+          `API provider "${entry.providerKey}" has ${state.count} consecutive failures - alert triggered`,
+        );
+      } catch (err) {
+        LOG.error("Failed to trigger API failure auto-alert:", err);
+      }
+    }
+  } else {
+    // Reset on success
+    state.count = 0;
+    state.lastSuccessAt = new Date().toISOString();
+    failureCounters.set(entry.providerKey, state);
+  }
 }
 
 /**
@@ -43,6 +129,9 @@ export async function logApiCall(entry: ApiCallEntry): Promise<void> {
         timestamp: new Date().toISOString(),
       }),
     );
+
+    // Track consecutive failures for auto-alerting
+    await trackProviderFailure(entry);
   } catch (err) {
     LOG.error("Failed to log API call:", err);
   }

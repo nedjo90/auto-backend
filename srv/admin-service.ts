@@ -20,6 +20,7 @@ const ENTITY_TABLE_MAP: Record<string, string> = {
   ConfigChatActions: "ConfigChatAction",
   ConfigModerationRules: "ConfigModerationRule",
   ConfigApiProviders: "ConfigApiProvider",
+  ConfigAlerts: "ConfigAlert",
 };
 
 const CONFIG_ENTITIES = Object.keys(ENTITY_TABLE_MAP);
@@ -44,6 +45,8 @@ export default class AdminServiceHandler extends cds.ApplicationService {
     this.on("getDashboardKpis", this.handleGetDashboardKpis);
     this.on("getDashboardTrend", this.handleGetDashboardTrend);
     this.on("getKpiDrillDown", this.handleGetKpiDrillDown);
+    this.on("acknowledgeAlert", this.handleAcknowledgeAlert);
+    this.on("getActiveAlerts", this.handleGetActiveAlerts);
 
     // Initialize SignalR client for real-time admin updates
     signalrClient.initialize();
@@ -613,6 +616,87 @@ export default class AdminServiceHandler extends cds.ApplicationService {
     }
     return result;
   }
+
+  /**
+   * Action handler: acknowledge an alert event.
+   */
+  private handleAcknowledgeAlert = async (req: cds.Request) => {
+    const { alertEventId } = req.data as { alertEventId: string };
+    if (!alertEventId?.trim()) {
+      return req.reject(400, "alertEventId is required");
+    }
+
+    try {
+      const entities = cds.entities("auto");
+      const AlertEvent = entities["AlertEvent"];
+      if (!AlertEvent) {
+        return req.reject(500, "AlertEvent entity not found");
+      }
+
+      const event = (await cds.run(SELECT.one.from(AlertEvent).where({ ID: alertEventId }))) as {
+        ID: string;
+        acknowledged: boolean;
+      } | null;
+
+      if (!event) {
+        return req.reject(404, "Alert event not found");
+      }
+
+      if (event.acknowledged) {
+        return { success: true, message: "Alert already acknowledged." };
+      }
+
+      const userId = req.user?.id || "system";
+      const now = new Date().toISOString();
+
+      await cds.run(
+        UPDATE(AlertEvent)
+          .set({ acknowledged: true, acknowledgedBy: userId, acknowledgedAt: now })
+          .where({ ID: alertEventId }),
+      );
+
+      await logAudit({
+        userId,
+        action: "ALERT_ACKNOWLEDGED",
+        resource: "AlertEvent",
+        details: JSON.stringify({ alertEventId }),
+      });
+
+      return { success: true, message: "Alert acknowledged." };
+    } catch (err) {
+      LOG.error("Failed to acknowledge alert:", err);
+      return req.reject(500, "Failed to acknowledge alert");
+    }
+  };
+
+  /**
+   * Action handler: get unacknowledged alert events.
+   */
+  private handleGetActiveAlerts = async (req: cds.Request) => {
+    try {
+      const entities = cds.entities("auto");
+      const AlertEvent = entities["AlertEvent"];
+      if (!AlertEvent) {
+        return [];
+      }
+
+      const events = (await cds.run(SELECT.from(AlertEvent).where({ acknowledged: false }))) as {
+        ID: string;
+        alertId: string;
+        metric: string;
+        currentValue: number;
+        thresholdValue: number;
+        severity: string;
+        message: string;
+        createdAt: string;
+      }[];
+
+      return events || [];
+    } catch (err) {
+      LOG.error("Failed to get active alerts:", err);
+      return req.reject(500, "Failed to get active alerts");
+    }
+  };
 
   /**
    * Resolve source table name from fully-qualified CDS entity name.

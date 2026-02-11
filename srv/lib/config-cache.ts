@@ -43,6 +43,7 @@ const CONFIG_TABLES = [
   "ConfigApiProvider",
   "ConfigRegistrationField",
   "ConfigProfileField",
+  "ConfigAlert",
 ] as const;
 
 /**
@@ -64,6 +65,7 @@ const KEY_FIELD_MAP: Record<string, string | string[]> = {
   ConfigApiProvider: "key",
   ConfigRegistrationField: "fieldName",
   ConfigProfileField: "fieldName",
+  ConfigAlert: "name",
 };
 
 /**

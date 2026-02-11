@@ -24,3 +24,16 @@ entity ApiCallLog : cuid {
   errorMessage     : String(500);
   timestamp        : Timestamp;
 }
+
+entity AlertEvent : cuid {
+  alertId        : String(36);
+  metric         : String(100);
+  currentValue   : Decimal(15, 4);
+  thresholdValue : Decimal(15, 4);
+  severity       : String(10);  // info, warning, critical
+  message        : String(500);
+  acknowledged   : Boolean default false;
+  acknowledgedBy : String(36);
+  acknowledgedAt : Timestamp;
+  createdAt      : Timestamp;
+}

@@ -13,6 +13,7 @@ const mockEntities: Record<string, string> = {
   ConfigApiProvider: "ConfigApiProvider",
   ConfigRegistrationField: "ConfigRegistrationField",
   ConfigProfileField: "ConfigProfileField",
+  ConfigAlert: "ConfigAlert",
 };
 
 const mockRun = jest.fn();
@@ -61,11 +62,11 @@ describe("InMemoryConfigCache", () => {
     expect(configCache.isReady()).toBe(true);
   });
 
-  it("should load data from all 12 config tables on refresh", async () => {
+  it("should load data from all 13 config tables on refresh", async () => {
     mockRun.mockResolvedValue([]);
     await configCache.refresh();
-    // 12 tables: 10 from story + ConfigRegistrationField + ConfigProfileField
-    expect(mockRun).toHaveBeenCalledTimes(12);
+    // 13 tables: 10 from story + ConfigRegistrationField + ConfigProfileField + ConfigAlert
+    expect(mockRun).toHaveBeenCalledTimes(13);
   });
 
   it("should return cached items by key after refresh", async () => {
@@ -74,8 +75,8 @@ describe("InMemoryConfigCache", () => {
       { ID: "p1", key: "session.timeout", value: "30" },
       { ID: "p2", key: "listing.price", value: "15" },
     ]);
-    // Remaining 11 tables return empty
-    for (let i = 0; i < 11; i++) {
+    // Remaining 12 tables return empty
+    for (let i = 0; i < 12; i++) {
       mockRun.mockResolvedValueOnce([]);
     }
 
@@ -160,8 +161,8 @@ describe("InMemoryConfigCache", () => {
     mockRun.mockResolvedValueOnce([
       { ID: "f1", code: "favorites", name: "Favorites", isActive: true },
     ]);
-    // Remaining 9 tables
-    for (let i = 0; i < 9; i++) {
+    // Remaining 11 tables
+    for (let i = 0; i < 11; i++) {
       mockRun.mockResolvedValueOnce([]);
     }
 
@@ -179,8 +180,8 @@ describe("InMemoryConfigCache", () => {
       { ID: "t1", key: "home.title", language: "fr", value: "Bienvenue" },
       { ID: "t2", key: "home.title", language: "en", value: "Welcome" },
     ]);
-    // Remaining 10 tables
-    for (let i = 0; i < 10; i++) {
+    // Remaining 11 tables
+    for (let i = 0; i < 11; i++) {
       mockRun.mockResolvedValueOnce([]);
     }
 
@@ -211,7 +212,7 @@ describe("InMemoryConfigCache", () => {
     // First table succeeds
     mockRun.mockResolvedValueOnce([]);
     // Rest fail
-    for (let i = 0; i < 11; i++) {
+    for (let i = 0; i < 12; i++) {
       mockRun.mockRejectedValueOnce(new Error("DB error"));
     }
     await configCache.refresh();

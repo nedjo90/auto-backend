@@ -9,7 +9,8 @@ export type SignalREvent =
   | "newListing"
   | "newSale"
   | "newRegistration"
-  | "newContact";
+  | "newContact"
+  | "newAlert";
 
 /** Payload for a SignalR event. */
 export interface SignalRMessage {
