@@ -1,4 +1,5 @@
 import { configCache } from "./config-cache";
+import { renderSeoTemplate } from "@auto/shared";
 import cds from "@sap/cds";
 
 const LOG = cds.log("seo-resolver");
@@ -9,15 +10,6 @@ export interface SeoMeta {
   ogTitle: string;
   ogDescription: string;
   canonicalUrl: string;
-}
-
-/**
- * Replace {{placeholder}} tokens with values from data object.
- * Unreplaced tokens are removed (replaced with empty string).
- */
-function renderTemplate(template: string, data: Record<string, string>): string {
-  if (!template) return "";
-  return template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => data[key] ?? "");
 }
 
 /**
@@ -51,11 +43,11 @@ export function resolve(
   }
 
   return {
-    metaTitle: renderTemplate(template.metaTitleTemplate, data),
-    metaDescription: renderTemplate(template.metaDescriptionTemplate, data),
-    ogTitle: renderTemplate(template.ogTitleTemplate, data),
-    ogDescription: renderTemplate(template.ogDescriptionTemplate, data),
-    canonicalUrl: renderTemplate(template.canonicalUrlPattern, data),
+    metaTitle: renderSeoTemplate(template.metaTitleTemplate, data),
+    metaDescription: renderSeoTemplate(template.metaDescriptionTemplate, data),
+    ogTitle: renderSeoTemplate(template.ogTitleTemplate, data),
+    ogDescription: renderSeoTemplate(template.ogDescriptionTemplate, data),
+    canonicalUrl: renderSeoTemplate(template.canonicalUrlPattern, data),
   };
 }
 

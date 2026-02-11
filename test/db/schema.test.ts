@@ -252,7 +252,7 @@ describe("Seed Data - ConfigSeoTemplate (Story 2-6, Task 1)", () => {
     const csv = fs.readFileSync(csvPath, "utf-8");
     const lines = csv.trim().split("\n").slice(1);
     for (const line of lines) {
-      const parts = line.split(";");
+      const parts = line.trim().split(";");
       const active = parts[8];
       expect(active).toBe("true");
     }
