@@ -8,7 +8,7 @@ type ConsentDecision : String(10) enum {
   revoked;
 }
 
-@assert.unique: {code}
+@assert.unique: {code: [code]}
 entity ConfigConsentType : cuid, managed {
   code           : String(50);
   labelKey       : String(100);

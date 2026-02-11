@@ -34,13 +34,40 @@ function sendUnauthorized(res: Response, detail: string, instance?: string) {
 }
 
 /**
+ * Check if Azure AD B2C is configured.
+ * When not configured in non-production, we allow CDS mock auth to pass through.
+ */
+function isAzureConfigured(): boolean {
+  return !!(
+    process.env.AZURE_AD_B2C_TENANT_NAME &&
+    process.env.AZURE_AD_B2C_CLIENT_ID &&
+    process.env.AZURE_AD_B2C_TENANT_ID
+  );
+}
+
+/**
  * Creates Express middleware that validates JWT tokens from Azure AD B2C.
  * On valid token: injects user context into req.user.
  * On invalid/missing token: returns 401 Unauthorized (RFC 7807).
+ *
+ * In development without Azure AD B2C configuration, falls back to CDS mock basic auth.
  */
 export function createAuthMiddleware() {
+  const azureConfigured = isAzureConfigured();
+
   return async (req: Request, res: Response, next: NextFunction) => {
     const authHeader = req.headers.authorization;
+
+    // Dev mode fallback: when Azure is not configured, pass through to CDS mock auth
+    // Skip in test mode to preserve JWT validation test coverage
+    if (
+      !azureConfigured &&
+      process.env.NODE_ENV !== "production" &&
+      process.env.NODE_ENV !== "test"
+    ) {
+      next();
+      return;
+    }
 
     if (!authHeader) {
       sendUnauthorized(res, "Missing Authorization header", req.originalUrl);

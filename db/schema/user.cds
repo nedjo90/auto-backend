@@ -8,7 +8,7 @@ type UserStatus : String(20) enum {
   anonymized;
 }
 
-@assert.unique: {email}
+@assert.unique: {email: [email]}
 entity User : cuid, managed {
   azureAdB2cId    : String(255);
   email           : String(255);

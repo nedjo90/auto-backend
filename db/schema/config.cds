@@ -5,7 +5,7 @@ using {auto.Role} from './rbac';
 
 // ─── Existing config entities (updated with managed aspect) ─────────────
 
-@assert.unique: {fieldName}
+@assert.unique: {fieldName: [fieldName]}
 entity ConfigRegistrationField : cuid, managed {
   fieldName         : String(50);
   fieldType         : String(20);
@@ -17,16 +17,16 @@ entity ConfigRegistrationField : cuid, managed {
   placeholderKey    : String(100);
 }
 
-@assert.unique: {key}
+@assert.unique: {configKey: [key]}
 entity ConfigParameter : cuid, managed {
-  key         : String(100);
+  ![key]      : String(100);
   value       : String(500);
   type        : String(20) default 'string';
   category    : String(50);
   description : String(500);
 }
 
-@assert.unique: {code}
+@assert.unique: {code: [code]}
 entity ConfigFeature : cuid, managed {
   code         : String(50);
   name         : String(100);
@@ -35,7 +35,7 @@ entity ConfigFeature : cuid, managed {
   isActive     : Boolean default true;
 }
 
-@assert.unique: {fieldName}
+@assert.unique: {fieldName: [fieldName]}
 entity ConfigProfileField : cuid, managed {
   fieldName               : String(50);
   isVisibleToPublic       : Boolean default false;
@@ -47,62 +47,62 @@ entity ConfigProfileField : cuid, managed {
 
 // ─── New config entities (Story 2-1) ────────────────────────────────────
 
-@assert.unique: {key, language}
+@assert.unique: {key_language: [key, language]}
 entity ConfigText : cuid, managed {
-  key      : String(100);
+  ![key]   : String(100);
   language : String(5) default 'fr';
   value    : LargeString;
   category : String(50);
 }
 
-@assert.unique: {key}
+@assert.unique: {configKey: [key]}
 entity ConfigBoostFactor : cuid, managed {
-  key         : String(100);
+  ![key]      : String(100);
   factor      : Decimal(5, 2) default 1.0;
   description : String(500);
 }
 
-@assert.unique: {key}
+@assert.unique: {configKey: [key]}
 entity ConfigVehicleType : cuid, managed {
-  key    : String(50);
+  ![key] : String(50);
   label  : String(100);
   active : Boolean default true;
 }
 
-@assert.unique: {key}
+@assert.unique: {configKey: [key]}
 entity ConfigListingDuration : cuid, managed {
-  key    : String(50);
+  ![key] : String(50);
   days   : Integer;
   label  : String(100);
   active : Boolean default true;
 }
 
-@assert.unique: {key}
+@assert.unique: {configKey: [key]}
 entity ConfigReportReason : cuid, managed {
-  key      : String(100);
+  ![key]   : String(100);
   label    : String(200);
   severity : String(20);
   active   : Boolean default true;
 }
 
-@assert.unique: {key}
+@assert.unique: {configKey: [key]}
 entity ConfigChatAction : cuid, managed {
-  key    : String(100);
+  ![key] : String(100);
   label  : String(200);
   active : Boolean default true;
 }
 
-@assert.unique: {key}
+@assert.unique: {configKey: [key]}
 entity ConfigModerationRule : cuid, managed {
-  key       : String(100);
+  ![key]    : String(100);
   condition : String(500);
   action    : String(100);
   active    : Boolean default true;
 }
 
-@assert.unique: {key}
+@assert.unique: {configKey: [key]}
 entity ConfigApiProvider : cuid, managed {
-  key              : String(100);
+  ![key]           : String(100);
   adapterInterface : String(100);
   status           : String(20) default 'inactive';
   costPerCall      : Decimal(10, 4) default 0;
@@ -112,7 +112,7 @@ entity ConfigApiProvider : cuid, managed {
 
 // ─── Alert configuration (Story 2-5) ────────────────────────────────────
 
-@assert.unique: {name}
+@assert.unique: {name: [name]}
 entity ConfigAlert : cuid, managed {
   name               : String(200);
   metric             : String(100);

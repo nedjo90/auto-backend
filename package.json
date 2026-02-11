@@ -58,6 +58,19 @@
       "db": {
         "kind": "sql",
         "impl": "@cap-js/sqlite"
+      },
+      "auth": {
+        "kind": "mocked",
+        "users": {
+          "admin": {
+            "password": "",
+            "roles": ["administrator", "authenticated-user"]
+          },
+          "user": {
+            "password": "",
+            "roles": ["authenticated-user"]
+          }
+        }
       }
     },
     "[production]": {

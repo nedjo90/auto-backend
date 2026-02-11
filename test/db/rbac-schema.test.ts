@@ -15,7 +15,7 @@ describe("CDS Schema - Role (Task 1.1)", () => {
   });
 
   it("should enforce unique code constraint on Role", () => {
-    expect(rbacCds).toMatch(/@assert\.unique:\s*\{code\}\s*\n\s*entity Role/);
+    expect(rbacCds).toMatch(/@assert\.unique:\s*\{code:\s*\[code\]\}\s*\n\s*entity Role/);
   });
 
   it("should have all required Role fields", () => {
@@ -63,7 +63,7 @@ describe("CDS Schema - Permission (Task 1.3)", () => {
   });
 
   it("should enforce unique code constraint on Permission", () => {
-    expect(rbacCds).toMatch(/@assert\.unique:\s*\{code\}\s*\n\s*entity Permission/);
+    expect(rbacCds).toMatch(/@assert\.unique:\s*\{code:\s*\[code\]\}\s*\n\s*entity Permission/);
   });
 
   it("should have code and description fields", () => {
@@ -103,7 +103,9 @@ describe("CDS Schema - ConfigFeature (Task 1.5)", () => {
   });
 
   it("should enforce unique code constraint on ConfigFeature", () => {
-    expect(configCds).toMatch(/@assert\.unique:\s*\{code\}\s*\n\s*entity ConfigFeature/);
+    expect(configCds).toMatch(
+      /@assert\.unique:\s*\{code:\s*\[code\]\}\s*\n\s*entity ConfigFeature/,
+    );
   });
 
   it("should have all required ConfigFeature fields", () => {

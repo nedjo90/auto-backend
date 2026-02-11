@@ -36,12 +36,20 @@ export function validateRegistrationInput(
 }
 
 export default class RegistrationService extends cds.ApplicationService {
-  identityProvider: IIdentityProviderAdapter | null = null;
+  private _identityProvider: IIdentityProviderAdapter | null = null;
+
+  get identityProvider(): IIdentityProviderAdapter {
+    if (!this._identityProvider) {
+      this._identityProvider = getIdentityProvider();
+    }
+    return this._identityProvider;
+  }
+
+  set identityProvider(adapter: IIdentityProviderAdapter | null) {
+    this._identityProvider = adapter;
+  }
 
   async init() {
-    if (!this.identityProvider) {
-      this.identityProvider = getIdentityProvider();
-    }
     this.on("READ", "ConfigRegistrationFields", this.getRegistrationFields);
     this.on("register", this.registerUser);
     await super.init();

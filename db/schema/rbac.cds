@@ -3,7 +3,7 @@ namespace auto;
 using {cuid} from '@sap/cds/common';
 using {auto.User} from './user';
 
-@assert.unique: {code}
+@assert.unique: {code: [code]}
 entity Role : cuid {
   code        : String(20);
   name        : String(100);
@@ -18,7 +18,7 @@ entity UserRole : cuid {
   assignedBy : Association to User;
 }
 
-@assert.unique: {code}
+@assert.unique: {code: [code]}
 entity Permission : cuid {
   code        : String(50);
   description : String(255);

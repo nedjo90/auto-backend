@@ -4,6 +4,7 @@ using {auto} from '../db/schema';
 @requires: 'any'
 service ConsentService {
   @readonly entity ActiveConsentTypes as projection on auto.ConfigConsentType where isActive = true;
+  @readonly entity UserConsents as projection on auto.UserConsent;
 
   type ConsentInput {
     consentTypeId      : UUID;
@@ -30,7 +31,7 @@ service ConsentService {
 
   // Authenticated: requires logged-in user
   @requires: 'authenticated-user'
-  function getUserConsents(userId : UUID) returns array of auto.UserConsent;
+  function getUserConsents(userId : UUID) returns array of UserConsents;
   @requires: 'authenticated-user'
-  function getPendingConsents(userId : UUID) returns array of auto.ConfigConsentType;
+  function getPendingConsents(userId : UUID) returns array of ActiveConsentTypes;
 }

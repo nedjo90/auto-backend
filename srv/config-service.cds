@@ -4,5 +4,5 @@ using {auto} from '../db/schema';
 @requires: 'any'
 service ConfigService {
   @readonly entity SessionParameters as projection on auto.ConfigParameter
-    where key like 'session.%';
+    where ![key] like 'session.%';
 }
