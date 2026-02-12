@@ -13,7 +13,7 @@ service RbacService {
   entity ConfigFeatures as projection on auto.ConfigFeature;
 
   @readonly @requires: 'administrator'
-  entity AuditLogs as projection on auto.AuditLog;
+  entity AuditLogs as projection on auto.AuditTrailEntry;
 
   type RoleAssignmentResult {
     success : Boolean;

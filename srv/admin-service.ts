@@ -465,7 +465,7 @@ export default class AdminServiceHandler extends cds.ApplicationService {
 
   /**
    * Action handler: get dashboard KPIs for a given period.
-   * Queries available tables (User, AuditLog, ApiCallLog).
+   * Queries available tables (User, AuditTrailEntry, ApiCallLog).
    * Listings, contacts, sales, revenue return 0 until those entities exist.
    */
   private handleGetDashboardKpis = async (req: cds.Request) => {
@@ -510,7 +510,7 @@ export default class AdminServiceHandler extends cds.ApplicationService {
         now.toISOString(),
       );
 
-      // Visitors KPI (from AuditLog - count unique user actions)
+      // Visitors KPI (from AuditTrailEntry - count unique user actions)
       const visitors = await this.computeKpi(
         entities["AuditTrailEntry"],
         "timestamp",
@@ -928,10 +928,14 @@ export default class AdminServiceHandler extends cds.ApplicationService {
       if (targetType) where.targetType = targetType;
       if (severity) where.severity = severity;
 
+      const MAX_EXPORT_ROWS = 10000;
       const query =
         Object.keys(where).length > 0
-          ? SELECT.from(AuditTrailEntry).where(where).orderBy("timestamp desc")
-          : SELECT.from(AuditTrailEntry).orderBy("timestamp desc");
+          ? SELECT.from(AuditTrailEntry)
+              .where(where)
+              .orderBy("timestamp desc")
+              .limit(MAX_EXPORT_ROWS)
+          : SELECT.from(AuditTrailEntry).orderBy("timestamp desc").limit(MAX_EXPORT_ROWS);
 
       const rows = (await cds.run(query)) as Record<string, unknown>[];
 
@@ -946,6 +950,7 @@ export default class AdminServiceHandler extends cds.ApplicationService {
         "severity",
         "details",
         "ipAddress",
+        "userAgent",
         "requestId",
       ];
       const csvLines = [headers.join(",")];
@@ -1004,10 +1009,11 @@ export default class AdminServiceHandler extends cds.ApplicationService {
       if (provider) where.providerKey = provider;
       if (adapter) where.adapterInterface = adapter;
 
+      const MAX_EXPORT_ROWS = 10000;
       const query =
         Object.keys(where).length > 0
-          ? SELECT.from(ApiCallLog).where(where).orderBy("timestamp desc")
-          : SELECT.from(ApiCallLog).orderBy("timestamp desc");
+          ? SELECT.from(ApiCallLog).where(where).orderBy("timestamp desc").limit(MAX_EXPORT_ROWS)
+          : SELECT.from(ApiCallLog).orderBy("timestamp desc").limit(MAX_EXPORT_ROWS);
 
       const rows = (await cds.run(query)) as Record<string, unknown>[];
 
