@@ -39,11 +39,13 @@ export default class AdminServiceHandler extends cds.ApplicationService {
       this.after(["CREATE", "UPDATE", "DELETE"], entity, this.onConfigMutation.bind(this, entity));
     }
 
-    // Validate ConfigAlerts input with Zod schema
-    this.before(["CREATE", "UPDATE"], "ConfigAlerts", this.validateAlertInput);
+    // Validate ConfigAlerts input with Zod schema (full on CREATE, partial on UPDATE)
+    this.before("CREATE", "ConfigAlerts", this.validateAlertInput);
+    this.before("UPDATE", "ConfigAlerts", this.validateAlertInputPartial);
 
-    // Validate ConfigSeoTemplates input with Zod schema
-    this.before(["CREATE", "UPDATE"], "ConfigSeoTemplates", this.validateSeoTemplateInput);
+    // Validate ConfigSeoTemplates input with Zod schema (full on CREATE, partial on UPDATE)
+    this.before("CREATE", "ConfigSeoTemplates", this.validateSeoTemplateInput);
+    this.before("UPDATE", "ConfigSeoTemplates", this.validateSeoTemplateInputPartial);
 
     // Register action handlers
     this.on("estimateConfigImpact", this.handleEstimateImpact);
@@ -63,7 +65,7 @@ export default class AdminServiceHandler extends cds.ApplicationService {
   }
 
   /**
-   * BEFORE handler: validate ConfigAlert input with Zod schema.
+   * BEFORE handler: validate ConfigAlert input with Zod schema (CREATE - full validation).
    */
   private validateAlertInput = (req: cds.Request) => {
     const result = configAlertInputSchema.safeParse(req.data);
@@ -74,10 +76,32 @@ export default class AdminServiceHandler extends cds.ApplicationService {
   };
 
   /**
-   * BEFORE handler: validate ConfigSeoTemplate input with Zod schema.
+   * BEFORE handler: validate ConfigAlert input with Zod schema (UPDATE - partial validation).
+   */
+  private validateAlertInputPartial = (req: cds.Request) => {
+    const result = configAlertInputSchema.partial().safeParse(req.data);
+    if (!result.success) {
+      const errors = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`);
+      req.reject(400, `Invalid alert configuration: ${errors.join("; ")}`);
+    }
+  };
+
+  /**
+   * BEFORE handler: validate ConfigSeoTemplate input with Zod schema (CREATE - full validation).
    */
   private validateSeoTemplateInput = (req: cds.Request) => {
     const result = configSeoTemplateInputSchema.safeParse(req.data);
+    if (!result.success) {
+      const errors = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`);
+      req.reject(400, `Invalid SEO template configuration: ${errors.join("; ")}`);
+    }
+  };
+
+  /**
+   * BEFORE handler: validate ConfigSeoTemplate input with Zod schema (UPDATE - partial validation).
+   */
+  private validateSeoTemplateInputPartial = (req: cds.Request) => {
+    const result = configSeoTemplateInputSchema.partial().safeParse(req.data);
     if (!result.success) {
       const errors = result.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`);
       req.reject(400, `Invalid SEO template configuration: ${errors.join("; ")}`);

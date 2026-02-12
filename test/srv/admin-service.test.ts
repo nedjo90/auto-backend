@@ -108,15 +108,17 @@ describe("AdminServiceHandler", () => {
     registeredOnHandlers = new Map();
 
     service = new AdminServiceHandler();
-    service.before = jest.fn((events: string[], entity: string, handler: Function) => {
-      for (const event of events) {
+    service.before = jest.fn((events: string | string[], entity: string, handler: Function) => {
+      const eventList = Array.isArray(events) ? events : [events];
+      for (const event of eventList) {
         const key = `${event}:${entity}`;
         if (!registeredBeforeHandlers.has(key)) registeredBeforeHandlers.set(key, []);
         registeredBeforeHandlers.get(key)!.push(handler);
       }
     });
-    service.after = jest.fn((events: string[], entity: string, handler: Function) => {
-      for (const event of events) {
+    service.after = jest.fn((events: string | string[], entity: string, handler: Function) => {
+      const eventList = Array.isArray(events) ? events : [events];
+      for (const event of eventList) {
         const key = `${event}:${entity}`;
         if (!registeredAfterHandlers.has(key)) registeredAfterHandlers.set(key, []);
         registeredAfterHandlers.get(key)!.push(handler);
