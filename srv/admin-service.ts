@@ -809,11 +809,9 @@ export default class AdminServiceHandler extends cds.ApplicationService {
       const now = new Date().toISOString();
       const userId = req.user?.id || "system";
 
-      // Archive current version(s)
+      // Archive all existing versions for this document
       await cds.run(
-        UPDATE(LegalDocumentVersion)
-          .set({ archived: true })
-          .where({ document_ID: documentId, archived: false }),
+        UPDATE(LegalDocumentVersion).set({ archived: true }).where({ document_ID: documentId }),
       );
 
       // Create new version record

@@ -15,6 +15,7 @@ entity LegalDocument : cuid, managed {
   versions              : Composition of many LegalDocumentVersion on versions.document = $self;
 }
 
+@assert.unique: {docVersion: [document, version]}
 entity LegalDocumentVersion : cuid, managed {
   document    : Association to LegalDocument;
   version     : Integer;

@@ -184,8 +184,27 @@ describe("LegalServiceHandler", () => {
       expect(req.reject).toHaveBeenCalledWith(401, "Utilisateur non authentifie");
     });
 
+    it("should return early if document already accepted", async () => {
+      mockRun.mockResolvedValueOnce({ ID: "doc-1", key: "cgu", currentVersion: 1 }); // document
+      mockRun.mockResolvedValueOnce({ ID: "existing-acceptance" }); // existing acceptance found
+
+      const handler = registeredOnHandlers.get("acceptLegalDocument")![0];
+      const req: any = {
+        data: { documentId: "doc-1", version: 1 },
+        reject: jest.fn(),
+        user: { id: "user-1" },
+        headers: {},
+      };
+      const result = await handler(req);
+
+      expect(req.reject).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ success: true, message: "Document deja accepte." });
+      expect(mockLogAudit).not.toHaveBeenCalled();
+    });
+
     it("should record acceptance successfully", async () => {
       mockRun.mockResolvedValueOnce({ ID: "doc-1", key: "cgu", currentVersion: 1 }); // document
+      mockRun.mockResolvedValueOnce(null); // no existing acceptance
       mockRun.mockResolvedValueOnce(undefined); // INSERT acceptance
 
       const handler = registeredOnHandlers.get("acceptLegalDocument")![0];
@@ -193,7 +212,7 @@ describe("LegalServiceHandler", () => {
         data: { documentId: "doc-1", version: 1 },
         reject: jest.fn(),
         user: { id: "user-1" },
-        headers: { "x-forwarded-for": "127.0.0.1", "user-agent": "TestBrowser" },
+        headers: { "x-forwarded-for": "127.0.0.1, 10.0.0.1", "user-agent": "TestBrowser" },
       };
       const result = await handler(req);
 
@@ -227,10 +246,12 @@ describe("LegalServiceHandler", () => {
     it("should return pending documents when user hasn't accepted current version", async () => {
       // Documents requiring reacceptance
       mockRun.mockResolvedValueOnce([{ ID: "doc-1", key: "cgu", title: "CGU", currentVersion: 2 }]);
-      // Check user acceptance - not found
-      mockRun.mockResolvedValueOnce(null);
-      // Get version summary
-      mockRun.mockResolvedValueOnce({ summary: "Updated privacy section" });
+      // Batch: user acceptances (empty - user hasn't accepted)
+      mockRun.mockResolvedValueOnce([]);
+      // Batch: current versions
+      mockRun.mockResolvedValueOnce([
+        { document_ID: "doc-1", version: 2, summary: "Updated privacy section" },
+      ]);
 
       const handler = registeredOnHandlers.get("checkLegalAcceptance")![0];
       const req: any = { reject: jest.fn(), user: { id: "user-1" } };
@@ -248,8 +269,10 @@ describe("LegalServiceHandler", () => {
 
     it("should skip documents already accepted by user", async () => {
       mockRun.mockResolvedValueOnce([{ ID: "doc-1", key: "cgu", title: "CGU", currentVersion: 2 }]);
-      // User has accepted version 2
-      mockRun.mockResolvedValueOnce({ ID: "acceptance-1" });
+      // Batch: user has accepted doc-1 version 2
+      mockRun.mockResolvedValueOnce([{ document_ID: "doc-1", version: 2 }]);
+      // Batch: versions (still fetched but won't be used)
+      mockRun.mockResolvedValueOnce([{ document_ID: "doc-1", version: 2, summary: "Summary" }]);
 
       const handler = registeredOnHandlers.get("checkLegalAcceptance")![0];
       const req: any = { reject: jest.fn(), user: { id: "user-1" } };

@@ -119,8 +119,27 @@ export default class LegalServiceHandler extends cds.ApplicationService {
         return req.reject(401, "Utilisateur non authentifie");
       }
 
+      // Check for existing acceptance (prevent duplicates)
+      const existing = (await cds.run(
+        SELECT.one
+          .from(LegalAcceptance)
+          .where({ user_ID: userId, document_ID: documentId, version }),
+      )) as { ID: string } | null;
+
+      if (existing) {
+        return { success: true, message: "Document deja accepte." };
+      }
+
       const now = new Date().toISOString();
       const acceptanceId = cds.utils.uuid();
+
+      // Extract first IP from x-forwarded-for header (may contain comma-separated list)
+      const forwardedFor = req.headers?.["x-forwarded-for"];
+      const clientIp = forwardedFor
+        ? Array.isArray(forwardedFor)
+          ? forwardedFor[0]
+          : forwardedFor.split(",")[0].trim()
+        : null;
 
       await cds.run(
         INSERT.into(LegalAcceptance).entries({
@@ -130,8 +149,8 @@ export default class LegalServiceHandler extends cds.ApplicationService {
           documentKey: doc.key,
           version,
           acceptedAt: now,
-          ipAddress: req.headers?.["x-forwarded-for"] || null,
-          userAgent: req.headers?.["user-agent"] || null,
+          ipAddress: clientIp?.substring(0, 45) || null,
+          userAgent: req.headers?.["user-agent"]?.substring(0, 500) || null,
         }),
       );
 
@@ -182,6 +201,25 @@ export default class LegalServiceHandler extends cds.ApplicationService {
         return [];
       }
 
+      // Batch: fetch all acceptances for this user across all relevant documents
+      const documentIds = docs.map((d) => d.ID);
+      const acceptances = (await cds.run(
+        SELECT.from(LegalAcceptance).where({ user_ID: userId, document_ID: { in: documentIds } }),
+      )) as { document_ID: string; version: number }[];
+
+      const acceptedMap = new Map(acceptances.map((a) => [`${a.document_ID}_${a.version}`, true]));
+
+      // Batch: fetch all current versions in one query
+      const allVersions = (await cds.run(
+        SELECT.from(LegalDocumentVersion).where({
+          document_ID: { in: documentIds },
+          archived: false,
+        }),
+      )) as { document_ID: string; version: number; summary: string }[];
+
+      const versionMap = new Map(allVersions.map((v) => [v.document_ID, v]));
+
+      // Build pending list without additional queries
       const pending: {
         documentId: string;
         documentKey: string;
@@ -191,21 +229,9 @@ export default class LegalServiceHandler extends cds.ApplicationService {
       }[] = [];
 
       for (const doc of docs) {
-        // Check if user has accepted the current version
-        const acceptance = (await cds.run(
-          SELECT.one
-            .from(LegalAcceptance)
-            .where({ user_ID: userId, document_ID: doc.ID, version: doc.currentVersion }),
-        )) as { ID: string } | null;
-
-        if (!acceptance) {
-          // Get the current version summary
-          const ver = (await cds.run(
-            SELECT.one
-              .from(LegalDocumentVersion)
-              .where({ document_ID: doc.ID, version: doc.currentVersion }),
-          )) as { summary: string } | null;
-
+        const key = `${doc.ID}_${doc.currentVersion}`;
+        if (!acceptedMap.has(key)) {
+          const ver = versionMap.get(doc.ID);
           pending.push({
             documentId: doc.ID,
             documentKey: doc.key,
