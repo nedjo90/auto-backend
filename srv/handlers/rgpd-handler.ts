@@ -24,7 +24,7 @@ export async function collectUserData(
   userId: string,
   entities: Record<string, unknown>,
 ): Promise<Array<{ section: string; data: unknown }>> {
-  const { User, UserConsent, AuditLog } = entities as Record<string, string>;
+  const { User, UserConsent, AuditTrailEntry } = entities as Record<string, string>;
   const sections: Array<{ section: string; data: unknown }> = [];
 
   // Profile data (exclude internal identifiers)
@@ -42,7 +42,7 @@ export async function collectUserData(
   sections.push({ section: "consents", data: consents || [] });
 
   // Audit trail
-  const audits = await cds.run(SELECT.from(AuditLog).where({ userId }));
+  const audits = await cds.run(SELECT.from(AuditTrailEntry).where({ actorId: userId }));
   sections.push({ section: "auditTrail", data: audits || [] });
 
   // Placeholder sections for future entities

@@ -268,6 +268,94 @@ describe("Seed Data - ConfigSeoTemplate (Story 2-6, Task 1)", () => {
   });
 });
 
+describe("CDS Schema - AuditTrailEntry (Story 2-8, Task 1)", () => {
+  const auditCds = fs.readFileSync(path.join(rootDir, "db/schema/audit.cds"), "utf-8");
+
+  it("should define AuditTrailEntry entity with cuid aspect", () => {
+    expect(auditCds).toContain("entity AuditTrailEntry : cuid");
+  });
+
+  it("should have all required fields", () => {
+    const requiredFields = [
+      "action",
+      "actorId",
+      "actorRole",
+      "targetType",
+      "targetId",
+      "timestamp",
+      "details",
+      "ipAddress",
+      "userAgent",
+      "requestId",
+      "severity",
+    ];
+    for (const field of requiredFields) {
+      expect(auditCds).toContain(field);
+    }
+  });
+
+  it("should use LargeString for details field", () => {
+    expect(auditCds).toMatch(/details\s+:\s+LargeString/);
+  });
+
+  it("should have severity field with String(10)", () => {
+    expect(auditCds).toMatch(/severity\s+:\s+String\(10\)/);
+  });
+
+  it("should use auto namespace", () => {
+    expect(auditCds).toContain("namespace auto;");
+  });
+});
+
+describe("CDS Schema - ApiCallLog (Story 2-8, Task 2)", () => {
+  const auditCds = fs.readFileSync(path.join(rootDir, "db/schema/audit.cds"), "utf-8");
+
+  it("should define ApiCallLog entity with cuid aspect", () => {
+    expect(auditCds).toContain("entity ApiCallLog : cuid");
+  });
+
+  it("should have all required fields", () => {
+    const requiredFields = [
+      "adapterInterface",
+      "providerKey",
+      "endpoint",
+      "httpMethod",
+      "httpStatus",
+      "responseTimeMs",
+      "cost",
+      "listingId",
+      "requestId",
+      "errorMessage",
+      "timestamp",
+    ];
+    for (const field of requiredFields) {
+      expect(auditCds).toContain(field);
+    }
+  });
+});
+
+describe("CDS Schema - AdminService AuditTrailEntries (Story 2-8)", () => {
+  const adminCds = fs.readFileSync(path.join(rootDir, "srv/admin-service.cds"), "utf-8");
+
+  it("should expose AuditTrailEntries as read-only projection", () => {
+    expect(adminCds).toContain(
+      "@readonly entity AuditTrailEntries as projection on auto.AuditTrailEntry",
+    );
+  });
+
+  it("should expose ApiCallLogs as read-only projection", () => {
+    expect(adminCds).toContain("@readonly entity ApiCallLogs");
+  });
+
+  it("should define exportAuditTrail action", () => {
+    expect(adminCds).toContain("action exportAuditTrail");
+  });
+
+  it("should define exportApiCallLogs action", () => {
+    expect(adminCds).toContain("action exportApiCallLogs");
+  });
+});
+
 describe("CDS Build Validation", () => {
   it("should have generated TypeScript models for auto namespace", () => {
     const modelsPath = path.join(rootDir, "@cds-models/auto/index.ts");

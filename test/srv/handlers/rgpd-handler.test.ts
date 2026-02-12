@@ -74,7 +74,7 @@ jest.mock("@sap/cds", () => {
         UserConsent: "UserConsent",
         DataExportRequest: "DataExportRequest",
         AnonymizationRequest: "AnonymizationRequest",
-        AuditLog: "AuditLog",
+        AuditTrailEntry: "AuditTrailEntry",
       })),
       run: jest.fn(),
       log: jest.fn(() => mockLog),

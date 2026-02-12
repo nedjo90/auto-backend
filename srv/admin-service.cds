@@ -20,6 +20,9 @@ service AdminService {
   @readonly entity ApiCallLogs              as projection on auto.ApiCallLog;
   @readonly entity AlertEvents             as projection on auto.AlertEvent;
 
+  // ─── Audit Trail (Story 2-8) ─────────────────────────────────────────
+  @readonly entity AuditTrailEntries as projection on auto.AuditTrailEntry;
+
   // ─── Legal document management (Story 2-7) ─────────────────────────────
   entity LegalDocuments        as projection on auto.LegalDocument;
   entity LegalDocumentVersions as projection on auto.LegalDocumentVersion;
@@ -120,4 +123,22 @@ service AdminService {
     message        : String;
     createdAt      : String;
   };
+
+  /** Export audit trail entries as CSV */
+  action exportAuditTrail(
+    dateFrom   : String,
+    dateTo     : String,
+    action     : String,
+    actorId    : String,
+    targetType : String,
+    severity   : String
+  ) returns LargeString;
+
+  /** Export API call logs as CSV */
+  action exportApiCallLogs(
+    dateFrom : String,
+    dateTo   : String,
+    provider : String,
+    adapter  : String
+  ) returns LargeString;
 }

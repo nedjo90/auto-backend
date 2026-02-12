@@ -52,7 +52,7 @@ jest.mock("@sap/cds", () => {
         ApiCallLog: "ApiCallLog",
         AlertEvent: "AlertEvent",
         User: "User",
-        AuditLog: "AuditLog",
+        AuditTrailEntry: "AuditTrailEntry",
         LegalDocument: "LegalDocument",
         LegalDocumentVersion: "LegalDocumentVersion",
         LegalAcceptance: "LegalAcceptance",
@@ -835,14 +835,14 @@ describe("AdminServiceHandler", () => {
       );
     });
 
-    it("should return KPIs with data from User and AuditLog tables", async () => {
-      // Mock: visitors (AuditLog) current=10, previous=8
+    it("should return KPIs with data from User and AuditTrailEntry tables", async () => {
+      // Mock: visitors (AuditTrailEntry) current=10, previous=8
       // Mock: registrations (User) current=5, previous=4
       mockRun
         .mockResolvedValueOnce(Array(5).fill({ ID: "u" })) // User current
         .mockResolvedValueOnce(Array(4).fill({ ID: "u" })) // User previous
-        .mockResolvedValueOnce(Array(10).fill({ ID: "a" })) // AuditLog current
-        .mockResolvedValueOnce(Array(8).fill({ ID: "a" })); // AuditLog previous
+        .mockResolvedValueOnce(Array(10).fill({ ID: "a" })) // AuditTrailEntry current
+        .mockResolvedValueOnce(Array(8).fill({ ID: "a" })); // AuditTrailEntry previous
 
       const handler = registeredOnHandlers.get("getDashboardKpis")![0];
       const req: any = {
@@ -871,8 +871,8 @@ describe("AdminServiceHandler", () => {
       mockRun
         .mockResolvedValueOnce(Array(3).fill({ ID: "u" })) // User current
         .mockResolvedValueOnce([]) // User previous (empty)
-        .mockResolvedValueOnce(Array(5).fill({ ID: "a" })) // AuditLog current
-        .mockResolvedValueOnce([]); // AuditLog previous (empty)
+        .mockResolvedValueOnce(Array(5).fill({ ID: "a" })) // AuditTrailEntry current
+        .mockResolvedValueOnce([]); // AuditTrailEntry previous (empty)
 
       const handler = registeredOnHandlers.get("getDashboardKpis")![0];
       const req: any = {
@@ -890,8 +890,8 @@ describe("AdminServiceHandler", () => {
       mockRun
         .mockResolvedValueOnce([]) // User current
         .mockResolvedValueOnce([]) // User previous
-        .mockResolvedValueOnce([]) // AuditLog current
-        .mockResolvedValueOnce([]); // AuditLog previous
+        .mockResolvedValueOnce([]) // AuditTrailEntry current
+        .mockResolvedValueOnce([]); // AuditTrailEntry previous
 
       const handler = registeredOnHandlers.get("getDashboardKpis")![0];
       const req: any = {
@@ -906,13 +906,13 @@ describe("AdminServiceHandler", () => {
 
     it("should handle missing User entity gracefully", async () => {
       (cds.entities as jest.Mock).mockReturnValueOnce({
-        AuditLog: "AuditLog",
+        AuditTrailEntry: "AuditTrailEntry",
         // User is missing
       });
 
       mockRun
-        .mockResolvedValueOnce(Array(3).fill({ ID: "a" })) // AuditLog current
-        .mockResolvedValueOnce([]); // AuditLog previous
+        .mockResolvedValueOnce(Array(3).fill({ ID: "a" })) // AuditTrailEntry current
+        .mockResolvedValueOnce([]); // AuditTrailEntry previous
 
       const handler = registeredOnHandlers.get("getDashboardKpis")![0];
       const req: any = {

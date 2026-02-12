@@ -2,14 +2,23 @@ namespace auto;
 
 using {cuid} from '@sap/cds/common';
 
-entity AuditLog : cuid {
-  userId    : String(36);
-  action    : String(100);
-  resource  : String(200);
-  details   : String(1000);
-  ipAddress : String(45);
-  timestamp : Timestamp;
+// ─── Audit Trail (Story 2-8) ────────────────────────────────────────
+
+entity AuditTrailEntry : cuid {
+  action     : String(100);   // e.g. "listing.published", "config.updated"
+  actorId    : String(36);    // UUID of who performed the action
+  actorRole  : String(20);    // e.g. "admin", "seller", "buyer", "system"
+  targetType : String(100);   // e.g. "Listing", "User", "ConfigParameter"
+  targetId   : String(36);    // ID of the affected entity
+  timestamp  : Timestamp;
+  details    : LargeString;   // JSON string with contextual data
+  ipAddress  : String(45);
+  userAgent  : String(500);
+  requestId  : String(36);    // for correlating related operations
+  severity   : String(10);    // info, warning, critical
 }
+
+// ─── API Call Log (Story 2-3, enhanced in Story 2-8) ────────────────
 
 entity ApiCallLog : cuid {
   adapterInterface : String(100);
@@ -24,6 +33,8 @@ entity ApiCallLog : cuid {
   errorMessage     : String(500);
   timestamp        : Timestamp;
 }
+
+// ─── Alert Events (Story 2-5) ───────────────────────────────────────
 
 entity AlertEvent : cuid {
   // Loose string reference (not Association) because auto-alerts from api-logger

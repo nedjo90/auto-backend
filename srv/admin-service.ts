@@ -65,6 +65,8 @@ export default class AdminServiceHandler extends cds.ApplicationService {
     this.on("getActiveAlerts", this.handleGetActiveAlerts);
     this.on("publishLegalVersion", this.handlePublishLegalVersion);
     this.on("getLegalAcceptanceCount", this.handleGetLegalAcceptanceCount);
+    this.on("exportAuditTrail", this.handleExportAuditTrail);
+    this.on("exportApiCallLogs", this.handleExportApiCallLogs);
 
     // Initialize SignalR client for real-time admin updates
     signalrClient.initialize();
@@ -510,7 +512,7 @@ export default class AdminServiceHandler extends cds.ApplicationService {
 
       // Visitors KPI (from AuditLog - count unique user actions)
       const visitors = await this.computeKpi(
-        entities["AuditLog"],
+        entities["AuditTrailEntry"],
         "timestamp",
         currentStartStr,
         previousStartStr,
@@ -625,7 +627,7 @@ export default class AdminServiceHandler extends cds.ApplicationService {
     const entities = cds.entities("auto");
 
     const metricConfig: Record<string, { entity: unknown; timestampField: string }> = {
-      visitors: { entity: entities["AuditLog"], timestampField: "timestamp" },
+      visitors: { entity: entities["AuditTrailEntry"], timestampField: "timestamp" },
       registrations: { entity: entities["User"], timestampField: "createdAt" },
     };
 
@@ -894,6 +896,161 @@ export default class AdminServiceHandler extends cds.ApplicationService {
     } catch (err) {
       LOG.error("Failed to count legal acceptances:", err);
       return req.reject(500, "Failed to count acceptances");
+    }
+  };
+
+  /**
+   * Action handler: export audit trail entries as CSV.
+   */
+  private handleExportAuditTrail = async (req: cds.Request) => {
+    try {
+      const { dateFrom, dateTo, action, actorId, targetType, severity } = req.data as {
+        dateFrom?: string;
+        dateTo?: string;
+        action?: string;
+        actorId?: string;
+        targetType?: string;
+        severity?: string;
+      };
+
+      const entities = cds.entities("auto");
+      const AuditTrailEntry = entities["AuditTrailEntry"];
+      if (!AuditTrailEntry) {
+        return req.reject(500, "AuditTrailEntry entity not found");
+      }
+
+      // Build filter conditions
+      const where: Record<string, unknown> = {};
+      if (dateFrom) where.timestamp = { ...((where.timestamp as object) || {}), ">=": dateFrom };
+      if (dateTo) where.timestamp = { ...((where.timestamp as object) || {}), "<=": dateTo };
+      if (action) where.action = action;
+      if (actorId) where.actorId = actorId;
+      if (targetType) where.targetType = targetType;
+      if (severity) where.severity = severity;
+
+      const query =
+        Object.keys(where).length > 0
+          ? SELECT.from(AuditTrailEntry).where(where).orderBy("timestamp desc")
+          : SELECT.from(AuditTrailEntry).orderBy("timestamp desc");
+
+      const rows = (await cds.run(query)) as Record<string, unknown>[];
+
+      // Build CSV
+      const headers = [
+        "timestamp",
+        "action",
+        "actorId",
+        "actorRole",
+        "targetType",
+        "targetId",
+        "severity",
+        "details",
+        "ipAddress",
+        "requestId",
+      ];
+      const csvLines = [headers.join(",")];
+      for (const row of rows || []) {
+        const values = headers.map((h) => {
+          const val = row[h];
+          if (val === null || val === undefined) return "";
+          const str = String(val);
+          return str.includes(",") || str.includes('"') || str.includes("\n")
+            ? `"${str.replace(/"/g, '""')}"`
+            : str;
+        });
+        csvLines.push(values.join(","));
+      }
+
+      // Log the export action
+      await logAudit({
+        userId: req.user?.id || "system",
+        action: "DATA_EXPORTED",
+        resource: "AuditTrailEntry",
+        details: JSON.stringify({
+          rowCount: (rows || []).length,
+          filters: { dateFrom, dateTo, action, targetType, severity },
+        }),
+      });
+
+      return csvLines.join("\n");
+    } catch (err) {
+      LOG.error("Failed to export audit trail:", err);
+      return req.reject(500, "Failed to export audit trail");
+    }
+  };
+
+  /**
+   * Action handler: export API call logs as CSV.
+   */
+  private handleExportApiCallLogs = async (req: cds.Request) => {
+    try {
+      const { dateFrom, dateTo, provider, adapter } = req.data as {
+        dateFrom?: string;
+        dateTo?: string;
+        provider?: string;
+        adapter?: string;
+      };
+
+      const entities = cds.entities("auto");
+      const ApiCallLog = entities["ApiCallLog"];
+      if (!ApiCallLog) {
+        return req.reject(500, "ApiCallLog entity not found");
+      }
+
+      // Build filter conditions
+      const where: Record<string, unknown> = {};
+      if (dateFrom) where.timestamp = { ...((where.timestamp as object) || {}), ">=": dateFrom };
+      if (dateTo) where.timestamp = { ...((where.timestamp as object) || {}), "<=": dateTo };
+      if (provider) where.providerKey = provider;
+      if (adapter) where.adapterInterface = adapter;
+
+      const query =
+        Object.keys(where).length > 0
+          ? SELECT.from(ApiCallLog).where(where).orderBy("timestamp desc")
+          : SELECT.from(ApiCallLog).orderBy("timestamp desc");
+
+      const rows = (await cds.run(query)) as Record<string, unknown>[];
+
+      // Build CSV
+      const headers = [
+        "timestamp",
+        "adapterInterface",
+        "providerKey",
+        "endpoint",
+        "httpMethod",
+        "httpStatus",
+        "responseTimeMs",
+        "cost",
+        "listingId",
+        "errorMessage",
+      ];
+      const csvLines = [headers.join(",")];
+      for (const row of rows || []) {
+        const values = headers.map((h) => {
+          const val = row[h];
+          if (val === null || val === undefined) return "";
+          const str = String(val);
+          return str.includes(",") || str.includes('"') || str.includes("\n")
+            ? `"${str.replace(/"/g, '""')}"`
+            : str;
+        });
+        csvLines.push(values.join(","));
+      }
+
+      await logAudit({
+        userId: req.user?.id || "system",
+        action: "DATA_EXPORTED",
+        resource: "ApiCallLog",
+        details: JSON.stringify({
+          rowCount: (rows || []).length,
+          filters: { dateFrom, dateTo, provider, adapter },
+        }),
+      });
+
+      return csvLines.join("\n");
+    } catch (err) {
+      LOG.error("Failed to export API call logs:", err);
+      return req.reject(500, "Failed to export API call logs");
     }
   };
 

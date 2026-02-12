@@ -3,10 +3,15 @@ jest.mock("@sap/cds", () => ({
   __esModule: true,
   default: {
     entities: jest.fn(() => ({
-      AuditLog: "AuditLog",
+      AuditTrailEntry: "AuditTrailEntry",
     })),
     run: jest.fn(),
-    utils: { uuid: jest.fn(() => "audit-uuid-123") },
+    log: jest.fn(() => ({
+      warn: jest.fn(),
+      info: jest.fn(),
+      error: jest.fn(),
+      debug: jest.fn(),
+    })),
   },
 }));
 
@@ -22,12 +27,12 @@ const mockRun = cds.run as jest.Mock;
 
 import { logAudit } from "../../../srv/lib/audit-logger";
 
-describe("audit-logger", () => {
+describe("audit-logger (backward-compatible re-export)", () => {
   beforeEach(() => {
     mockRun.mockReset();
   });
 
-  it("should insert audit record with all fields", async () => {
+  it("should insert audit record via AuditTrailEntry entity", async () => {
     mockRun.mockResolvedValueOnce(undefined);
 
     await logAudit({
@@ -39,7 +44,7 @@ describe("audit-logger", () => {
     });
 
     expect(mockRun).toHaveBeenCalledTimes(1);
-    expect((global as any).INSERT.into).toHaveBeenCalledWith("AuditLog");
+    expect((global as any).INSERT.into).toHaveBeenCalledWith("AuditTrailEntry");
   });
 
   it("should insert audit record without optional fields", async () => {
@@ -56,7 +61,6 @@ describe("audit-logger", () => {
 
   it("should not throw on database error (best-effort logging)", async () => {
     mockRun.mockRejectedValueOnce(new Error("DB connection failed"));
-    const consoleSpy = jest.spyOn(console, "error").mockImplementation();
 
     await expect(
       logAudit({
@@ -65,24 +69,5 @@ describe("audit-logger", () => {
         resource: "user/user-456",
       }),
     ).resolves.toBeUndefined();
-
-    expect(consoleSpy).toHaveBeenCalledWith(
-      "[audit-logger] Failed to log audit event:",
-      expect.any(Error),
-    );
-
-    consoleSpy.mockRestore();
-  });
-
-  it("should generate UUID for audit log entry", async () => {
-    mockRun.mockResolvedValueOnce(undefined);
-
-    await logAudit({
-      userId: "user-123",
-      action: "test",
-      resource: "test",
-    });
-
-    expect(cds.utils.uuid).toHaveBeenCalled();
   });
 });
