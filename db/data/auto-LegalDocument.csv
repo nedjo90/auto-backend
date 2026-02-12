@@ -1,0 +1,5 @@
+ID;key;title;currentVersion;requiresReacceptance;active
+a1b2c3d4-e5f6-7890-abcd-ef12345c0001;cgu;Conditions Generales d'Utilisation;1;false;true
+a1b2c3d4-e5f6-7890-abcd-ef12345c0002;cgv;Conditions Generales de Vente;1;false;true
+a1b2c3d4-e5f6-7890-abcd-ef12345c0003;privacy_policy;Politique de Confidentialite;1;false;true
+a1b2c3d4-e5f6-7890-abcd-ef12345c0004;legal_notices;Mentions Legales;1;false;true

@@ -53,6 +53,9 @@ jest.mock("@sap/cds", () => {
         AlertEvent: "AlertEvent",
         User: "User",
         AuditLog: "AuditLog",
+        LegalDocument: "LegalDocument",
+        LegalDocumentVersion: "LegalDocumentVersion",
+        LegalAcceptance: "LegalAcceptance",
       })),
       run: jest.fn(),
       log: jest.fn(() => mockLog),
@@ -86,6 +89,12 @@ const selectFromWhereResult = {
     where: jest.fn().mockReturnValue("update-query"),
   }),
 });
+
+(global as any).INSERT = {
+  into: jest.fn().mockReturnValue({
+    entries: jest.fn().mockReturnValue("insert-query"),
+  }),
+};
 
 const AdminServiceHandler = require("../../srv/admin-service").default;
 
@@ -132,7 +141,7 @@ describe("AdminServiceHandler", () => {
     await service.init();
   });
 
-  it("should register BEFORE handlers for UPDATE/DELETE on all 12 config entities", () => {
+  it("should register BEFORE handlers for UPDATE/DELETE on all 14 config entities", () => {
     const configEntities = [
       "ConfigParameters",
       "ConfigTexts",
@@ -146,6 +155,8 @@ describe("AdminServiceHandler", () => {
       "ConfigApiProviders",
       "ConfigAlerts",
       "ConfigSeoTemplates",
+      "LegalDocuments",
+      "LegalDocumentVersions",
     ];
 
     for (const entity of configEntities) {
@@ -154,7 +165,7 @@ describe("AdminServiceHandler", () => {
     }
   });
 
-  it("should register AFTER handlers for CREATE/UPDATE/DELETE on all 12 config entities", () => {
+  it("should register AFTER handlers for CREATE/UPDATE/DELETE on all 14 config entities", () => {
     const configEntities = [
       "ConfigParameters",
       "ConfigTexts",
@@ -168,6 +179,8 @@ describe("AdminServiceHandler", () => {
       "ConfigApiProviders",
       "ConfigAlerts",
       "ConfigSeoTemplates",
+      "LegalDocuments",
+      "LegalDocumentVersions",
     ];
 
     for (const entity of configEntities) {
@@ -1258,6 +1271,121 @@ describe("AdminServiceHandler", () => {
       const result = await handler(req);
       expect(result).toHaveLength(1);
       expect(result[0].severity).toBe("critical");
+    });
+  });
+
+  describe("publishLegalVersion", () => {
+    it("should register publishLegalVersion handler", () => {
+      expect(registeredOnHandlers.has("publishLegalVersion")).toBe(true);
+    });
+
+    it("should reject empty documentId", async () => {
+      const handler = registeredOnHandlers.get("publishLegalVersion")![0];
+      const req: any = {
+        data: { documentId: "", content: "Content", summary: "Summary" },
+        reject: jest.fn(),
+        user: { id: "admin" },
+      };
+      await handler(req);
+      expect(req.reject).toHaveBeenCalledWith(
+        400,
+        expect.stringContaining("Invalid publish input"),
+      );
+    });
+
+    it("should reject empty content", async () => {
+      const handler = registeredOnHandlers.get("publishLegalVersion")![0];
+      const req: any = {
+        data: { documentId: "doc-1", content: "", summary: "Summary" },
+        reject: jest.fn(),
+        user: { id: "admin" },
+      };
+      await handler(req);
+      expect(req.reject).toHaveBeenCalledWith(
+        400,
+        expect.stringContaining("Invalid publish input"),
+      );
+    });
+
+    it("should reject when document not found", async () => {
+      mockRun.mockResolvedValueOnce(null); // SELECT.one returns null
+      const handler = registeredOnHandlers.get("publishLegalVersion")![0];
+      const req: any = {
+        data: { documentId: "nonexistent", content: "Content" },
+        reject: jest.fn(),
+        user: { id: "admin" },
+      };
+      await handler(req);
+      expect(req.reject).toHaveBeenCalledWith(404, "Document legal non trouve");
+    });
+
+    it("should publish a new version successfully", async () => {
+      // Mock: SELECT existing document
+      mockRun.mockResolvedValueOnce({ ID: "doc-1", key: "cgu", currentVersion: 1 });
+      // Mock: UPDATE to archive old versions
+      mockRun.mockResolvedValueOnce(undefined);
+      // Mock: INSERT new version
+      mockRun.mockResolvedValueOnce(undefined);
+      // Mock: UPDATE document master
+      mockRun.mockResolvedValueOnce(undefined);
+
+      const handler = registeredOnHandlers.get("publishLegalVersion")![0];
+      const req: any = {
+        data: {
+          documentId: "doc-1",
+          content: "New legal content",
+          summary: "Updated privacy section",
+          requiresReacceptance: true,
+        },
+        reject: jest.fn(),
+        user: { id: "admin" },
+      };
+      const result = await handler(req);
+
+      expect(req.reject).not.toHaveBeenCalled();
+      expect(result).toMatchObject({
+        ID: "test-uuid",
+        document_ID: "doc-1",
+        version: 2,
+        content: "New legal content",
+        summary: "Updated privacy section",
+        archived: false,
+      });
+      expect(mockLogAudit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "LEGAL_VERSION_PUBLISHED",
+          resource: "LegalDocumentVersion",
+        }),
+      );
+    });
+  });
+
+  describe("getLegalAcceptanceCount", () => {
+    it("should register getLegalAcceptanceCount handler", () => {
+      expect(registeredOnHandlers.has("getLegalAcceptanceCount")).toBe(true);
+    });
+
+    it("should reject empty documentId", async () => {
+      const handler = registeredOnHandlers.get("getLegalAcceptanceCount")![0];
+      const req: any = { data: { documentId: "" }, reject: jest.fn() };
+      await handler(req);
+      expect(req.reject).toHaveBeenCalledWith(400, "documentId is required");
+    });
+
+    it("should return 0 when no acceptances", async () => {
+      mockRun.mockResolvedValueOnce([]);
+      const handler = registeredOnHandlers.get("getLegalAcceptanceCount")![0];
+      const req: any = { data: { documentId: "doc-1" }, reject: jest.fn() };
+      const result = await handler(req);
+      expect(result).toBe(0);
+    });
+
+    it("should return count of acceptances", async () => {
+      mockRun.mockResolvedValueOnce([{ ID: "a1" }, { ID: "a2" }, { ID: "a3" }]);
+      const handler = registeredOnHandlers.get("getLegalAcceptanceCount")![0];
+      const req: any = { data: { documentId: "doc-1" }, reject: jest.fn() };
+      const result = await handler(req);
+      expect(result).toBe(3);
     });
   });
 });

@@ -3,7 +3,11 @@ import { configCache } from "./lib/config-cache";
 import { logAudit } from "./lib/audit-logger";
 import { invalidateAdapter } from "./adapters/factory/adapter-factory";
 import { signalrClient } from "./lib/signalr-client";
-import { configAlertInputSchema, configSeoTemplateInputSchema } from "@auto/shared";
+import {
+  configAlertInputSchema,
+  configSeoTemplateInputSchema,
+  publishLegalVersionInputSchema,
+} from "@auto/shared";
 
 const LOG = cds.log("admin");
 
@@ -23,6 +27,8 @@ const ENTITY_TABLE_MAP: Record<string, string> = {
   ConfigApiProviders: "ConfigApiProvider",
   ConfigAlerts: "ConfigAlert",
   ConfigSeoTemplates: "ConfigSeoTemplate",
+  LegalDocuments: "LegalDocument",
+  LegalDocumentVersions: "LegalDocumentVersion",
 };
 
 const CONFIG_ENTITIES = Object.keys(ENTITY_TABLE_MAP);
@@ -57,6 +63,8 @@ export default class AdminServiceHandler extends cds.ApplicationService {
     this.on("getKpiDrillDown", this.handleGetKpiDrillDown);
     this.on("acknowledgeAlert", this.handleAcknowledgeAlert);
     this.on("getActiveAlerts", this.handleGetActiveAlerts);
+    this.on("publishLegalVersion", this.handlePublishLegalVersion);
+    this.on("getLegalAcceptanceCount", this.handleGetLegalAcceptanceCount);
 
     // Initialize SignalR client for real-time admin updates
     signalrClient.initialize();
@@ -751,6 +759,143 @@ export default class AdminServiceHandler extends cds.ApplicationService {
     } catch (err) {
       LOG.error("Failed to get active alerts:", err);
       return req.reject(500, "Failed to get active alerts");
+    }
+  };
+
+  /**
+   * Action handler: publish a new version of a legal document.
+   * Atomically increments version, creates version record, archives previous, updates document.
+   */
+  private handlePublishLegalVersion = async (req: cds.Request) => {
+    const { documentId, content, summary, requiresReacceptance } = req.data as {
+      documentId: string;
+      content: string;
+      summary?: string;
+      requiresReacceptance?: boolean;
+    };
+
+    // Validate input with Zod
+    const validation = publishLegalVersionInputSchema.safeParse({
+      documentId,
+      content,
+      summary,
+      requiresReacceptance,
+    });
+    if (!validation.success) {
+      const errors = validation.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`);
+      return req.reject(400, `Invalid publish input: ${errors.join("; ")}`);
+    }
+
+    try {
+      const entities = cds.entities("auto");
+      const LegalDocument = entities["LegalDocument"];
+      const LegalDocumentVersion = entities["LegalDocumentVersion"];
+      if (!LegalDocument || !LegalDocumentVersion) {
+        return req.reject(500, "Legal entities not found");
+      }
+
+      // Fetch existing document
+      const doc = (await cds.run(SELECT.one.from(LegalDocument).where({ ID: documentId }))) as {
+        ID: string;
+        key: string;
+        currentVersion: number;
+      } | null;
+
+      if (!doc) {
+        return req.reject(404, "Document legal non trouve");
+      }
+
+      const newVersion = doc.currentVersion + 1;
+      const now = new Date().toISOString();
+      const userId = req.user?.id || "system";
+
+      // Archive current version(s)
+      await cds.run(
+        UPDATE(LegalDocumentVersion)
+          .set({ archived: true })
+          .where({ document_ID: documentId, archived: false }),
+      );
+
+      // Create new version record
+      const newVersionId = cds.utils.uuid();
+      await cds.run(
+        INSERT.into(LegalDocumentVersion).entries({
+          ID: newVersionId,
+          document_ID: documentId,
+          version: newVersion,
+          content: validation.data.content,
+          summary: validation.data.summary || "",
+          publishedAt: now,
+          publishedBy: userId,
+          archived: false,
+        }),
+      );
+
+      // Update document master record
+      const shouldRequireReacceptance = validation.data.requiresReacceptance ?? true;
+      await cds.run(
+        UPDATE(LegalDocument)
+          .set({
+            currentVersion: newVersion,
+            requiresReacceptance: shouldRequireReacceptance,
+          })
+          .where({ ID: documentId }),
+      );
+
+      // Log to audit trail
+      await logAudit({
+        userId,
+        action: "LEGAL_VERSION_PUBLISHED",
+        resource: "LegalDocumentVersion",
+        details: JSON.stringify({
+          documentId,
+          documentKey: doc.key,
+          previousVersion: doc.currentVersion,
+          newVersion,
+          requiresReacceptance: shouldRequireReacceptance,
+        }),
+      });
+
+      return {
+        ID: newVersionId,
+        document_ID: documentId,
+        version: newVersion,
+        content: validation.data.content,
+        summary: validation.data.summary || "",
+        publishedAt: now,
+        publishedBy: userId,
+        archived: false,
+      };
+    } catch (err) {
+      LOG.error("Failed to publish legal version:", err);
+      return req.reject(500, "Failed to publish legal version");
+    }
+  };
+
+  /**
+   * Function handler: get acceptance count for a legal document.
+   */
+  private handleGetLegalAcceptanceCount = async (req: cds.Request) => {
+    const { documentId } = req.data as { documentId: string };
+    if (!documentId?.trim()) {
+      return req.reject(400, "documentId is required");
+    }
+
+    try {
+      const entities = cds.entities("auto");
+      const LegalAcceptance = entities["LegalAcceptance"];
+      if (!LegalAcceptance) {
+        return 0;
+      }
+
+      const rows = (await cds.run(
+        SELECT.from(LegalAcceptance).where({ document_ID: documentId }),
+      )) as unknown[];
+
+      return rows?.length || 0;
+    } catch (err) {
+      LOG.error("Failed to count legal acceptances:", err);
+      return req.reject(500, "Failed to count acceptances");
     }
   };
 

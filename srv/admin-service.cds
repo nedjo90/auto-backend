@@ -20,6 +20,11 @@ service AdminService {
   @readonly entity ApiCallLogs              as projection on auto.ApiCallLog;
   @readonly entity AlertEvents             as projection on auto.AlertEvent;
 
+  // ─── Legal document management (Story 2-7) ─────────────────────────────
+  entity LegalDocuments        as projection on auto.LegalDocument;
+  entity LegalDocumentVersions as projection on auto.LegalDocumentVersion;
+  @readonly entity LegalAcceptances as projection on auto.LegalAcceptance;
+
   /** Estimate impact of changing a config parameter */
   action estimateConfigImpact(parameterKey : String(100) not null) returns {
     affectedCount : Integer;
@@ -86,6 +91,17 @@ service AdminService {
     date  : Date;
     value : Integer;
   };
+
+  /** Publish a new version of a legal document */
+  action publishLegalVersion(
+    documentId          : UUID not null,
+    content             : LargeString not null,
+    summary             : String(500),
+    requiresReacceptance : Boolean
+  ) returns LegalDocumentVersions;
+
+  /** Get count of acceptances for a legal document */
+  function getLegalAcceptanceCount(documentId : UUID not null) returns Integer;
 
   /** Acknowledge an alert event */
   action acknowledgeAlert(alertEventId : String(36) not null) returns {
