@@ -55,7 +55,7 @@ function normalizeFuelType(fuelType: string): FuelCategory {
 
 function parseEuroNorm(euroNorm: string): number | null {
   // Match patterns like "Euro 6d", "Euro 6d-FULL", "Euro 5", "6", "EURO6"
-  const match = euroNorm.match(/(\d)/);
+  const match = euroNorm.match(/(\d+)/);
   if (!match) return null;
   return parseInt(match[1], 10);
 }

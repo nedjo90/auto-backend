@@ -1,5 +1,6 @@
 import type { RecallRequest, RecallResponse, RecallCampaign } from "@auto/shared";
 import type { IRecallAdapter } from "../interfaces/recall.interface";
+import { delay } from "../../lib/async-utils";
 
 const MOCK_RECALLS: Record<string, RecallCampaign[]> = {
   "Citroën|C3": [
@@ -69,8 +70,4 @@ export class MockRecallAdapter implements IRecallAdapter {
       provider: { providerName: "mock", providerVersion: "1.0.0" },
     };
   }
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

@@ -1,5 +1,6 @@
 import type { PaymentRequest, PaymentResponse, WebhookEvent } from "@auto/shared";
 import type { IPaymentAdapter } from "../interfaces/payment.interface";
+import { delay } from "../../lib/async-utils";
 
 let sessionCounter = 0;
 
@@ -53,8 +54,4 @@ export class MockPaymentAdapter implements IPaymentAdapter {
       createdAt: new Date().toISOString(),
     };
   }
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

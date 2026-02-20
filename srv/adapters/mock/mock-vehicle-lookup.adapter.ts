@@ -1,5 +1,6 @@
 import type { VehicleLookupRequest, VehicleLookupResponse } from "@auto/shared";
 import type { IVehicleLookupAdapter } from "../interfaces/vehicle-lookup.interface";
+import { delay } from "../../lib/async-utils";
 
 const MOCK_VEHICLES: VehicleLookupResponse[] = [
   {
@@ -109,8 +110,4 @@ export class MockVehicleLookupAdapter implements IVehicleLookupAdapter {
 
     return { ...vehicle };
   }
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

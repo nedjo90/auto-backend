@@ -1,5 +1,6 @@
 import type { CritAirRequest, CritAirResponse, CritAirLevel } from "@auto/shared";
 import type { ICritAirCalculator } from "../interfaces/critair.interface";
+import { delay } from "../../lib/async-utils";
 
 /** Crit'Air classification based on French regulations. */
 function classifyCritAir(
@@ -62,8 +63,4 @@ export class MockCritAirAdapter implements ICritAirCalculator {
       provider: { providerName: "mock", providerVersion: "1.0.0" },
     };
   }
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

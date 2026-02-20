@@ -1,5 +1,6 @@
 import type { VINTechnicalRequest, VINTechnicalResponse } from "@auto/shared";
 import type { IVINTechnicalAdapter } from "./interfaces/vin-technical.interface";
+import { delay } from "../lib/async-utils";
 
 const DEFAULT_TIMEOUT_MS = 10000;
 const MAX_RETRIES = 2;
@@ -38,7 +39,7 @@ export class NhtsaVINAdapter implements IVINTechnicalAdapter {
 
   async decode(request: VINTechnicalRequest): Promise<VINTechnicalResponse> {
     const url = `${this.baseUrl}/${encodeURIComponent(request.vin)}?format=json`;
-    const data = (await this.fetchWithRetry(url)) as unknown as NhtsaApiResponse;
+    const data = (await this.fetchWithRetry(url)) as NhtsaApiResponse;
 
     if (!data.Results || data.Results.length === 0) {
       throw new Error(`No VIN data returned for: ${request.vin}`);
@@ -69,7 +70,7 @@ export class NhtsaVINAdapter implements IVINTechnicalAdapter {
     };
   }
 
-  private async fetchWithRetry(url: string, attempt = 0): Promise<Record<string, unknown>> {
+  private async fetchWithRetry(url: string, attempt = 0): Promise<unknown> {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -93,8 +94,4 @@ export class NhtsaVINAdapter implements IVINTechnicalAdapter {
       );
     }
   }
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

@@ -146,6 +146,8 @@ export async function logApiCall(entry: ApiCallEntry): Promise<void> {
 /**
  * Wraps an async function to automatically log the API call.
  * Use this to instrument adapter methods.
+ *
+ * @param httpMethod - HTTP method used by this adapter call (default: "GET")
  */
 export function withApiLogging<TArgs extends unknown[], TResult>(
   adapterInterface: string,
@@ -153,6 +155,7 @@ export function withApiLogging<TArgs extends unknown[], TResult>(
   costPerCall: number,
   fn: (...args: TArgs) => Promise<TResult>,
   endpointName?: string,
+  httpMethod = "GET",
 ): (...args: TArgs) => Promise<TResult> {
   const resolvedEndpoint = endpointName || fn.name || "unknown";
   return async (...args: TArgs): Promise<TResult> => {
@@ -169,14 +172,18 @@ export function withApiLogging<TArgs extends unknown[], TResult>(
       throw err;
     } finally {
       const responseTimeMs = Date.now() - start;
+      // Read listingId from CDS request context if available
+      const ctx = cds.context as Record<string, unknown> | undefined;
+      const listingId = (ctx?.listingId as string) || undefined;
       await logApiCall({
         adapterInterface,
         providerKey,
         endpoint: resolvedEndpoint,
-        httpMethod: "POST",
+        httpMethod,
         httpStatus,
         responseTimeMs,
         cost: costPerCall,
+        listingId,
         errorMessage,
       });
     }

@@ -1,5 +1,6 @@
 import type { ValuationRequest, ValuationResponse } from "@auto/shared";
 import type { IValuationAdapter } from "../interfaces/valuation.interface";
+import { delay } from "../../lib/async-utils";
 
 /** Simple mock valuation based on vehicle attributes. */
 function computeMockValuation(request: ValuationRequest): {
@@ -67,8 +68,4 @@ export class MockValuationAdapter implements IValuationAdapter {
       provider: { providerName: "mock", providerVersion: "1.0.0" },
     };
   }
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

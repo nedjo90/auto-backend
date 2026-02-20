@@ -1,5 +1,6 @@
 import type { EmissionRequest, EmissionResponse } from "@auto/shared";
 import type { IEmissionAdapter } from "./interfaces/emission.interface";
+import { delay } from "../lib/async-utils";
 
 const DEFAULT_TIMEOUT_MS = 10000;
 const MAX_RETRIES = 2;
@@ -39,7 +40,7 @@ export class AdemeEmissionAdapter implements IEmissionAdapter {
     params.set("select", "co2_g_km,lib_eg_conso,norme_euro,cod_cbr,co_typ_1,nox_typ_1,ptcl_typ_1");
 
     const url = `${this.baseUrl}/lines?${params.toString()}`;
-    const data = (await this.fetchWithRetry(url)) as unknown as AdemeApiResponse;
+    const data = (await this.fetchWithRetry(url)) as AdemeApiResponse;
 
     if (!data.results || data.results.length === 0) {
       throw new Error(
@@ -59,7 +60,7 @@ export class AdemeEmissionAdapter implements IEmissionAdapter {
     };
   }
 
-  private async fetchWithRetry(url: string, attempt = 0): Promise<Record<string, unknown>> {
+  private async fetchWithRetry(url: string, attempt = 0): Promise<unknown> {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -116,8 +117,4 @@ function buildPollutants(record: AdemeRecord): Record<string, number> | null {
   if (record.nox_typ_1 != null) pollutants.NOx = record.nox_typ_1;
   if (record.ptcl_typ_1 != null) pollutants.PM = record.ptcl_typ_1;
   return Object.keys(pollutants).length > 0 ? pollutants : null;
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

@@ -1,5 +1,6 @@
 import type { HistoryRequest, HistoryResponse } from "@auto/shared";
 import type { IHistoryAdapter } from "../interfaces/history.interface";
+import { delay } from "../../lib/async-utils";
 
 const MOCK_HISTORIES: Record<string, HistoryResponse> = {
   VF1RFB00X56789012: {
@@ -78,8 +79,4 @@ export class MockHistoryAdapter implements IHistoryAdapter {
       accidents: data.accidents.map((a) => ({ ...a })),
     };
   }
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

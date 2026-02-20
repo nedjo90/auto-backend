@@ -1,5 +1,6 @@
 import type { VINTechnicalRequest, VINTechnicalResponse } from "@auto/shared";
 import type { IVINTechnicalAdapter } from "../interfaces/vin-technical.interface";
+import { delay } from "../../lib/async-utils";
 
 const MOCK_VIN_DATA: Record<string, VINTechnicalResponse> = {
   VF1RFB00X56789012: {
@@ -84,8 +85,4 @@ export class MockVINTechnicalAdapter implements IVINTechnicalAdapter {
 
     return { ...data };
   }
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

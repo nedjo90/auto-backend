@@ -1,5 +1,6 @@
 import type { EmissionRequest, EmissionResponse } from "@auto/shared";
 import type { IEmissionAdapter } from "../interfaces/emission.interface";
+import { delay } from "../../lib/async-utils";
 
 const MOCK_EMISSIONS: Record<string, EmissionResponse> = {
   "Renault|Clio V|2022|essence": {
@@ -60,8 +61,4 @@ export class MockEmissionAdapter implements IEmissionAdapter {
       provider: { providerName: "mock", providerVersion: "1.0.0" },
     };
   }
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
