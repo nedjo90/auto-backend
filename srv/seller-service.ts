@@ -117,13 +117,15 @@ function extractRecallFields(response: unknown, source: string): CertifiedFieldR
   const now = new Date().toISOString();
   const fields: CertifiedFieldResult[] = [];
 
-  fields.push({
-    fieldName: "recallCount",
-    fieldValue: String(data.totalCount),
-    source,
-    sourceTimestamp: now,
-    isCertified: true,
-  });
+  if (data.totalCount != null) {
+    fields.push({
+      fieldName: "recallCount",
+      fieldValue: String(data.totalCount),
+      source,
+      sourceTimestamp: now,
+      isCertified: true,
+    });
+  }
 
   return fields;
 }
@@ -131,30 +133,27 @@ function extractRecallFields(response: unknown, source: string): CertifiedFieldR
 function extractCritAirFields(response: unknown, source: string): CertifiedFieldResult[] {
   const data = response as CritAirResponse;
   const now = new Date().toISOString();
+  const fields: CertifiedFieldResult[] = [];
 
-  return [
-    {
-      fieldName: "critAirLevel",
-      fieldValue: data.level,
-      source,
-      sourceTimestamp: now,
-      isCertified: true,
-    },
-    {
-      fieldName: "critAirLabel",
-      fieldValue: data.label,
-      source,
-      sourceTimestamp: now,
-      isCertified: true,
-    },
-    {
-      fieldName: "critAirColor",
-      fieldValue: data.color,
-      source,
-      sourceTimestamp: now,
-      isCertified: true,
-    },
-  ];
+  const fieldMap: Record<string, string | null | undefined> = {
+    critAirLevel: data.level,
+    critAirLabel: data.label,
+    critAirColor: data.color,
+  };
+
+  for (const [fieldName, value] of Object.entries(fieldMap)) {
+    if (value != null && value !== "") {
+      fields.push({
+        fieldName,
+        fieldValue: value,
+        source,
+        sourceTimestamp: now,
+        isCertified: true,
+      });
+    }
+  }
+
+  return fields;
 }
 
 function extractVINTechnicalFields(response: unknown, source: string): CertifiedFieldResult[] {
@@ -261,13 +260,16 @@ export default class SellerServiceHandler extends cds.ApplicationService {
       identifierType: string;
     };
 
+    // Normalize to uppercase (plates and VINs are case-insensitive)
+    const normalizedIdentifier = identifier.toUpperCase();
+
     // Validate identifier format
     if (identifierType === "plate") {
-      if (!PLATE_REGEX.test(identifier)) {
+      if (!PLATE_REGEX.test(normalizedIdentifier)) {
         return req.error(400, "Invalid plate format. Expected: XX-NNN-XX (e.g., AB-123-CD)");
       }
     } else if (identifierType === "vin") {
-      if (!VIN_REGEX.test(identifier)) {
+      if (!VIN_REGEX.test(normalizedIdentifier)) {
         return req.error(
           400,
           "Invalid VIN format. Expected: 17 alphanumeric characters (no I, O, Q)",
@@ -277,7 +279,7 @@ export default class SellerServiceHandler extends cds.ApplicationService {
       return req.error(400, "Invalid identifierType. Must be 'plate' or 'vin'");
     }
 
-    const adapterCalls = buildAdapterCalls(identifier, identifierType);
+    const adapterCalls = buildAdapterCalls(normalizedIdentifier, identifierType);
     const allFields: CertifiedFieldResult[] = [];
     const allSources: ApiSourceStatus[] = [];
 
@@ -397,7 +399,7 @@ export default class SellerServiceHandler extends cds.ApplicationService {
 
     // Step 3: Create CertifiedField records for a temporary listing ID
     // (actual listingId will be assigned when the listing is created)
-    const tempListingId = req.data.listingId || cds.utils.uuid();
+    const tempListingId = cds.utils.uuid();
 
     for (const field of allFields) {
       try {
@@ -414,7 +416,6 @@ export default class SellerServiceHandler extends cds.ApplicationService {
         action: "listing.autofill",
         resource: "Vehicle",
         details: JSON.stringify({
-          identifier,
           identifierType,
           fieldsCount: allFields.length,
           sourcesCount: allSources.length,

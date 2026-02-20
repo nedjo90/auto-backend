@@ -3,7 +3,9 @@ using {auto} from '../db/schema';
 @path    : '/api/seller'
 @requires: 'authenticated-user'
 service SellerService {
-  @readonly entity CertifiedFields as projection on auto.CertifiedField;
+  @readonly
+  @restrict: [{ grant: 'READ', where: 'listingId in (SELECT listingId FROM auto.CertifiedField WHERE listingId IS NOT NULL)' }]
+  entity CertifiedFields as projection on auto.CertifiedField;
 
   /** Auto-fill vehicle data by license plate or VIN */
   action autoFillByPlate(
