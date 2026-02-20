@@ -19,7 +19,7 @@ entity ConfigRegistrationField : cuid, managed {
 
 @assert.unique: {configKey: [key]}
 entity ConfigParameter : cuid, managed {
-  ![key]      : String(100);
+  ![key]      : String(100) not null;
   value       : String(500);
   type        : String(20) default 'string';
   category    : String(50);

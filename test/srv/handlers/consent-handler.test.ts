@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // ─── ConsentService handler (mocked CDS) ────────────────────────────
 
 jest.mock("@sap/cds", () => {
@@ -47,13 +48,12 @@ const mockUuid = cds.utils.uuid as jest.Mock;
 
 // Import handler after CDS is mocked
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const ConsentServiceHandler =
-  require("../../../srv/handlers/consent-handler").default;
+const ConsentServiceHandler = require("../../../srv/handlers/consent-handler").default;
 
 describe("ConsentServiceHandler", () => {
   let service: any;
-  let registeredHandlers: Record<string, Function>;
-  let registeredBeforeHandlers: Record<string, Function>;
+  let registeredHandlers: Record<string, (...args: any[]) => any>;
+  let registeredBeforeHandlers: Record<string, (...args: any[]) => any>;
 
   const mockConsentTypes = [
     {
@@ -113,44 +113,24 @@ describe("ConsentServiceHandler", () => {
     registeredBeforeHandlers = {};
 
     service = new ConsentServiceHandler();
-    service.on = jest.fn(
-      (event: string, entityOrHandler: any, handler?: any) => {
-        const key = handler ? `${event}:${entityOrHandler}` : event;
-        registeredHandlers[key] = handler || entityOrHandler;
-      },
-    );
-    service.before = jest.fn(
-      (events: string[], entity: any, handler?: any) => {
-        for (const event of events) {
-          registeredBeforeHandlers[`${event}:${entity}`] = handler;
-        }
-      },
-    );
+    service.on = jest.fn((event: string, entityOrHandler: any, handler?: any) => {
+      const key = handler ? `${event}:${entityOrHandler}` : event;
+      registeredHandlers[key] = handler || entityOrHandler;
+    });
+    service.before = jest.fn((events: string[], entity: any, handler?: any) => {
+      for (const event of events) {
+        registeredBeforeHandlers[`${event}:${entity}`] = handler;
+      }
+    });
     await service.init();
   });
 
   it("should register all handlers on init", () => {
-    expect(service.on).toHaveBeenCalledWith(
-      "READ",
-      "ActiveConsentTypes",
-      expect.any(Function),
-    );
-    expect(service.on).toHaveBeenCalledWith(
-      "recordConsent",
-      expect.any(Function),
-    );
-    expect(service.on).toHaveBeenCalledWith(
-      "recordConsents",
-      expect.any(Function),
-    );
-    expect(service.on).toHaveBeenCalledWith(
-      "getUserConsents",
-      expect.any(Function),
-    );
-    expect(service.on).toHaveBeenCalledWith(
-      "getPendingConsents",
-      expect.any(Function),
-    );
+    expect(service.on).toHaveBeenCalledWith("READ", "ActiveConsentTypes", expect.any(Function));
+    expect(service.on).toHaveBeenCalledWith("recordConsent", expect.any(Function));
+    expect(service.on).toHaveBeenCalledWith("recordConsents", expect.any(Function));
+    expect(service.on).toHaveBeenCalledWith("getUserConsents", expect.any(Function));
+    expect(service.on).toHaveBeenCalledWith("getPendingConsents", expect.any(Function));
   });
 
   it("should register before handlers for UPDATE/DELETE on UserConsent", () => {
@@ -200,13 +180,8 @@ describe("ConsentServiceHandler", () => {
       });
       const handler = registeredHandlers["recordConsent"];
 
-      await expect(handler(req)).rejects.toThrow(
-        "Consent type not found or inactive",
-      );
-      expect(req.reject).toHaveBeenCalledWith(
-        404,
-        "Consent type not found or inactive",
-      );
+      await expect(handler(req)).rejects.toThrow("Consent type not found or inactive");
+      expect(req.reject).toHaveBeenCalledWith(404, "Consent type not found or inactive");
     });
 
     it("should reject for invalid decision value", async () => {
@@ -217,15 +192,11 @@ describe("ConsentServiceHandler", () => {
       });
       const handler = registeredHandlers["recordConsent"];
 
-      await expect(handler(req)).rejects.toThrow(
-        "Decision must be 'granted' or 'revoked'",
-      );
+      await expect(handler(req)).rejects.toThrow("Decision must be 'granted' or 'revoked'");
     });
 
     it("should accept 'revoked' decision", async () => {
-      mockRun
-        .mockResolvedValueOnce(mockConsentTypes[1])
-        .mockResolvedValueOnce(undefined);
+      mockRun.mockResolvedValueOnce(mockConsentTypes[1]).mockResolvedValueOnce(undefined);
 
       const req = mockReq({
         input: { consentTypeId: "ct-2", decision: "revoked" },
@@ -299,9 +270,7 @@ describe("ConsentServiceHandler", () => {
       });
       const handler = registeredHandlers["recordConsents"];
 
-      await expect(handler(req)).rejects.toThrow(
-        "Decision must be 'granted' or 'revoked'",
-      );
+      await expect(handler(req)).rejects.toThrow("Decision must be 'granted' or 'revoked'");
     });
   });
 
@@ -363,12 +332,10 @@ describe("ConsentServiceHandler", () => {
     });
 
     it("should return empty when user has consented to all at current version", async () => {
-      mockRun
-        .mockResolvedValueOnce(mockConsentTypes)
-        .mockResolvedValueOnce([
-          { consentType_ID: "ct-1", consentTypeVersion: 1, decision: "granted" },
-          { consentType_ID: "ct-2", consentTypeVersion: 1, decision: "granted" },
-        ]);
+      mockRun.mockResolvedValueOnce(mockConsentTypes).mockResolvedValueOnce([
+        { consentType_ID: "ct-1", consentTypeVersion: 1, decision: "granted" },
+        { consentType_ID: "ct-2", consentTypeVersion: 1, decision: "granted" },
+      ]);
 
       const req = mockReq({ userId: "up-to-date-user" });
       const handler = registeredHandlers["getPendingConsents"];
@@ -382,12 +349,10 @@ describe("ConsentServiceHandler", () => {
         { ...mockConsentTypes[0], version: 2 }, // version bumped
         mockConsentTypes[1],
       ];
-      mockRun
-        .mockResolvedValueOnce(updatedTypes)
-        .mockResolvedValueOnce([
-          { consentType_ID: "ct-1", consentTypeVersion: 1, decision: "granted" },
-          { consentType_ID: "ct-2", consentTypeVersion: 1, decision: "granted" },
-        ]);
+      mockRun.mockResolvedValueOnce(updatedTypes).mockResolvedValueOnce([
+        { consentType_ID: "ct-1", consentTypeVersion: 1, decision: "granted" },
+        { consentType_ID: "ct-2", consentTypeVersion: 1, decision: "granted" },
+      ]);
 
       const req = mockReq({ userId: "user-needs-reconsent" });
       const handler = registeredHandlers["getPendingConsents"];
@@ -399,13 +364,11 @@ describe("ConsentServiceHandler", () => {
     });
 
     it("should use latest consent record per type (most recent first)", async () => {
-      mockRun
-        .mockResolvedValueOnce(mockConsentTypes)
-        .mockResolvedValueOnce([
-          // Most recent first (ordered by timestamp desc)
-          { consentType_ID: "ct-1", consentTypeVersion: 1, decision: "revoked" },
-          { consentType_ID: "ct-1", consentTypeVersion: 1, decision: "granted" },
-        ]);
+      mockRun.mockResolvedValueOnce(mockConsentTypes).mockResolvedValueOnce([
+        // Most recent first (ordered by timestamp desc)
+        { consentType_ID: "ct-1", consentTypeVersion: 1, decision: "revoked" },
+        { consentType_ID: "ct-1", consentTypeVersion: 1, decision: "granted" },
+      ]);
 
       const req = mockReq({ userId: "user-with-history" });
       const handler = registeredHandlers["getPendingConsents"];
@@ -426,9 +389,7 @@ describe("ConsentServiceHandler", () => {
       expect(handler).toBeDefined();
 
       const req = mockReq({});
-      expect(() => handler(req)).toThrow(
-        "UserConsent records are immutable",
-      );
+      expect(() => handler(req)).toThrow("UserConsent records are immutable");
     });
 
     it("should reject DELETE on UserConsent", () => {
@@ -436,9 +397,7 @@ describe("ConsentServiceHandler", () => {
       expect(handler).toBeDefined();
 
       const req = mockReq({});
-      expect(() => handler(req)).toThrow(
-        "UserConsent records are immutable",
-      );
+      expect(() => handler(req)).toThrow("UserConsent records are immutable");
     });
   });
 });

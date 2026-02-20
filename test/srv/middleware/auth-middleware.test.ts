@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createAuthMiddleware } from "../../../srv/middleware/auth-middleware";
 
 // Mock jwt-validator
@@ -13,9 +14,7 @@ jest.mock("../../../srv/lib/jwt-validator", () => ({
 
 import { validateToken } from "../../../srv/lib/jwt-validator";
 
-const mockValidateToken = validateToken as jest.MockedFunction<
-  typeof validateToken
->;
+const mockValidateToken = validateToken as jest.MockedFunction<typeof validateToken>;
 
 // Helper to create mock Express req/res/next
 function createMockReq(headers: Record<string, string> = {}) {
@@ -86,12 +85,8 @@ describe("auth-middleware", () => {
   });
 
   it("should return 401 on expired token", async () => {
-    const { JwtValidationError } = jest.requireMock(
-      "../../../srv/lib/jwt-validator",
-    );
-    mockValidateToken.mockRejectedValue(
-      new JwtValidationError("Token expired"),
-    );
+    const { JwtValidationError } = jest.requireMock("../../../srv/lib/jwt-validator");
+    mockValidateToken.mockRejectedValue(new JwtValidationError("Token expired"));
 
     const req = createMockReq({ authorization: "Bearer expired-token" });
     const res = createMockRes();
@@ -104,12 +99,8 @@ describe("auth-middleware", () => {
   });
 
   it("should return 401 on invalid signature", async () => {
-    const { JwtValidationError } = jest.requireMock(
-      "../../../srv/lib/jwt-validator",
-    );
-    mockValidateToken.mockRejectedValue(
-      new JwtValidationError("Invalid signature"),
-    );
+    const { JwtValidationError } = jest.requireMock("../../../srv/lib/jwt-validator");
+    mockValidateToken.mockRejectedValue(new JwtValidationError("Invalid signature"));
 
     const req = createMockReq({
       authorization: "Bearer invalid-signature-token",

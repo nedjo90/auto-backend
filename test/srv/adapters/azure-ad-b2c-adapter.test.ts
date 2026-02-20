@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { AzureAdB2cAdapter } from "../../../srv/adapters/azure-ad-b2c-adapter";
 import type { CreateUserData } from "../../../srv/adapters/interfaces/identity-provider.interface";
 import {
@@ -63,16 +64,11 @@ describe("AzureAdB2cAdapter", () => {
     it("should throw on Graph API error", async () => {
       mockPost.mockRejectedValueOnce(new Error("Graph API 400: Bad Request"));
 
-      await expect(adapter.createUser(userData)).rejects.toThrow(
-        "Graph API 400: Bad Request",
-      );
+      await expect(adapter.createUser(userData)).rejects.toThrow("Graph API 400: Bad Request");
     });
 
     it("should use tenant name from constructor", async () => {
-      const customAdapter = new AzureAdB2cAdapter(
-        mockClient,
-        "custom-tenant",
-      );
+      const customAdapter = new AzureAdB2cAdapter(mockClient, "custom-tenant");
       mockPost.mockResolvedValueOnce({ id: "user-456" });
 
       await customAdapter.createUser(userData);
@@ -102,9 +98,7 @@ describe("AzureAdB2cAdapter", () => {
     it("should throw on Graph API error", async () => {
       mockUpdate.mockRejectedValueOnce(new Error("Not Found"));
 
-      await expect(adapter.disableUser("nonexistent")).rejects.toThrow(
-        "Not Found",
-      );
+      await expect(adapter.disableUser("nonexistent")).rejects.toThrow("Not Found");
     });
   });
 
@@ -127,9 +121,9 @@ describe("AzureAdB2cAdapter", () => {
     it("should throw on Graph API error", async () => {
       mockUpdate.mockRejectedValueOnce(new Error("Forbidden"));
 
-      await expect(
-        adapter.updateUser("user-123", { displayName: "Test" }),
-      ).rejects.toThrow("Forbidden");
+      await expect(adapter.updateUser("user-123", { displayName: "Test" })).rejects.toThrow(
+        "Forbidden",
+      );
     });
   });
 });

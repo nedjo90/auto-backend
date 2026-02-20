@@ -277,8 +277,8 @@ describe("InMemoryConfigCache", () => {
     expect(all).toHaveLength(2);
   });
 
-  it("should be a singleton (same reference on re-import)", async () => {
-    const { configCache: cache2 } = await import("../../../srv/lib/config-cache");
+  it("should be a singleton (same reference on re-import)", () => {
+    const cache2 = jest.requireActual("../../../srv/lib/config-cache").configCache;
     expect(cache2).toBe(configCache);
   });
 });
