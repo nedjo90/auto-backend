@@ -83,6 +83,15 @@ service SellerService {
     visibilityLabel      : String(50);
   };
 
+  /** Load full draft data including certified fields and photos */
+  action loadDraft(
+    listingId : String(36) not null
+  ) returns {
+    listing         : LargeString;   // JSON: full listing fields
+    certifiedFields : LargeString;   // JSON array: certified field records
+    photos          : LargeString;   // JSON array: photos ordered by sortOrder
+  };
+
   /** Duplicate an existing draft (copies declared fields + photos, NOT certified fields) */
   action duplicateDraft(
     listingId : String(36) not null

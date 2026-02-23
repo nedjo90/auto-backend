@@ -866,3 +866,205 @@ describe("SellerService - deleteDraft", () => {
     expect(req.error).toHaveBeenCalledWith(401, "Authentication required");
   });
 });
+
+// ─── loadDraft Tests ────────────────────────────────────────────────────────
+
+describe("SellerService - loadDraft", () => {
+  let handleLoadDraft: any;
+
+  beforeAll(() => {
+    const handler = new SellerServiceHandler();
+    handler.on = (event: string, fn: any) => {
+      if (event === "loadDraft") {
+        handleLoadDraft = fn;
+      }
+    };
+    handler.init();
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockRun.mockReset();
+  });
+
+  it("should return full listing data with certified fields and photos", async () => {
+    const listing = {
+      ID: "draft-1",
+      sellerId: "test-user-1",
+      status: "draft",
+      make: "Renault",
+      model: "Clio V",
+      year: 2022,
+      price: 15000,
+      visibilityScore: 60,
+      visibilityLabel: "Bien documenté",
+      completionPercentage: 45,
+    };
+    const certFields = [
+      {
+        ID: "cf-1",
+        listingId: "draft-1",
+        fieldName: "make",
+        fieldValue: "Renault",
+        source: "SIV",
+        sourceTimestamp: "2026-02-23T10:00:00Z",
+        isCertified: true,
+        isOverridden: false,
+      },
+      {
+        ID: "cf-2",
+        listingId: "draft-1",
+        fieldName: "model",
+        fieldValue: "Clio V",
+        source: "SIV",
+        sourceTimestamp: "2026-02-23T10:00:00Z",
+        isCertified: true,
+        isOverridden: false,
+      },
+    ];
+    const photos = [
+      {
+        ID: "p-1",
+        listingId: "draft-1",
+        cdnUrl: "https://cdn/photo1.jpg",
+        sortOrder: 0,
+        isPrimary: true,
+      },
+      {
+        ID: "p-2",
+        listingId: "draft-1",
+        cdnUrl: "https://cdn/photo2.jpg",
+        sortOrder: 1,
+        isPrimary: false,
+      },
+    ];
+
+    mockRun.mockResolvedValueOnce(listing); // SELECT listing
+    mockRun.mockResolvedValueOnce(certFields); // SELECT certifiedFields
+    mockRun.mockResolvedValueOnce(photos); // SELECT photos
+
+    const req = createMockRequest({ listingId: "draft-1" });
+    const result = await handleLoadDraft(req);
+
+    expect(req.error).not.toHaveBeenCalled();
+
+    const parsedListing = JSON.parse(result.listing);
+    expect(parsedListing.make).toBe("Renault");
+    expect(parsedListing.completionPercentage).toBe(45);
+    expect(parsedListing.visibilityScore).toBe(60);
+
+    const parsedCertFields = JSON.parse(result.certifiedFields);
+    expect(parsedCertFields).toHaveLength(2);
+    expect(parsedCertFields[0].source).toBe("SIV");
+    expect(parsedCertFields[0].sourceTimestamp).toBe("2026-02-23T10:00:00Z");
+    expect(parsedCertFields[0].isCertified).toBe(true);
+
+    const parsedPhotos = JSON.parse(result.photos);
+    expect(parsedPhotos).toHaveLength(2);
+    expect(parsedPhotos[0].sortOrder).toBe(0);
+    expect(parsedPhotos[0].isPrimary).toBe(true);
+    expect(parsedPhotos[1].sortOrder).toBe(1);
+  });
+
+  it("should return empty arrays when no certified fields or photos", async () => {
+    mockRun.mockResolvedValueOnce({
+      ID: "draft-1",
+      sellerId: "test-user-1",
+      status: "draft",
+    });
+    mockRun.mockResolvedValueOnce([]); // no certified fields
+    mockRun.mockResolvedValueOnce([]); // no photos
+
+    const req = createMockRequest({ listingId: "draft-1" });
+    const result = await handleLoadDraft(req);
+
+    expect(JSON.parse(result.certifiedFields)).toEqual([]);
+    expect(JSON.parse(result.photos)).toEqual([]);
+  });
+
+  it("should handle null certified fields result", async () => {
+    mockRun.mockResolvedValueOnce({
+      ID: "draft-1",
+      sellerId: "test-user-1",
+      status: "draft",
+    });
+    mockRun.mockResolvedValueOnce(null); // null certified fields
+    mockRun.mockResolvedValueOnce(null); // null photos
+
+    const req = createMockRequest({ listingId: "draft-1" });
+    const result = await handleLoadDraft(req);
+
+    expect(JSON.parse(result.certifiedFields)).toEqual([]);
+    expect(JSON.parse(result.photos)).toEqual([]);
+  });
+
+  it("should return 404 when listing not found", async () => {
+    mockRun.mockResolvedValueOnce(null);
+
+    const req = createMockRequest({ listingId: "nonexistent" });
+    await handleLoadDraft(req);
+
+    expect(req.error).toHaveBeenCalledWith(404, "Listing not found");
+  });
+
+  it("should return 403 when user is not the owner", async () => {
+    mockRun.mockResolvedValueOnce({
+      ID: "draft-1",
+      sellerId: "other-user",
+      status: "draft",
+    });
+
+    const req = createMockRequest({ listingId: "draft-1" });
+    await handleLoadDraft(req);
+
+    expect(req.error).toHaveBeenCalledWith(403, expect.stringContaining("Not authorized"));
+  });
+
+  it("should preserve certified field source and timestamp information", async () => {
+    const certFields = [
+      {
+        ID: "cf-1",
+        listingId: "draft-1",
+        fieldName: "make",
+        fieldValue: "Renault",
+        source: "SIV API v2",
+        sourceTimestamp: "2026-02-20T08:30:00Z",
+        isCertified: true,
+        isOverridden: false,
+      },
+      {
+        ID: "cf-2",
+        listingId: "draft-1",
+        fieldName: "co2GKm",
+        fieldValue: "128",
+        source: "ADEME",
+        sourceTimestamp: "2026-02-20T08:31:00Z",
+        isCertified: true,
+        isOverridden: false,
+      },
+    ];
+
+    mockRun.mockResolvedValueOnce({ ID: "draft-1", sellerId: "test-user-1" });
+    mockRun.mockResolvedValueOnce(certFields);
+    mockRun.mockResolvedValueOnce([]);
+
+    const req = createMockRequest({ listingId: "draft-1" });
+    const result = await handleLoadDraft(req);
+
+    const parsed = JSON.parse(result.certifiedFields);
+    expect(parsed[0].source).toBe("SIV API v2");
+    expect(parsed[0].sourceTimestamp).toBe("2026-02-20T08:30:00Z");
+    expect(parsed[1].source).toBe("ADEME");
+  });
+
+  it("should return 401 when user is not authenticated", async () => {
+    const req = {
+      data: { listingId: "draft-1" },
+      user: {},
+      error: jest.fn(),
+    };
+
+    await handleLoadDraft(req);
+    expect(req.error).toHaveBeenCalledWith(401, "Authentication required");
+  });
+});

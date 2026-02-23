@@ -294,6 +294,7 @@ export default class SellerServiceHandler extends cds.ApplicationService {
   async init() {
     this.on("autoFillByPlate", this.handleAutoFill);
     this.on("saveDraft", this.handleSaveDraft);
+    this.on("loadDraft", this.handleLoadDraft);
     this.on("duplicateDraft", this.handleDuplicateDraft);
     this.on("deleteDraft", this.handleDeleteDraft);
     this.on("recalculateScore", this.handleRecalculateScore);
@@ -650,6 +651,43 @@ export default class SellerServiceHandler extends cds.ApplicationService {
       completionPercentage,
       visibilityScore: scoreResult.score,
       visibilityLabel: scoreResult.label,
+    };
+  };
+
+  private handleLoadDraft = async (req: cds.Request) => {
+    const { listingId } = req.data as { listingId: string };
+
+    const userId = (req.user as { id?: string })?.id;
+    if (!userId) {
+      return req.error(401, "Authentication required");
+    }
+
+    const entities = cds.entities("auto");
+    const Listing = entities["Listing"];
+    const CertifiedField = entities["CertifiedField"];
+    const ListingPhoto = entities["ListingPhoto"];
+
+    // Load listing
+    const listing = await cds.run(SELECT.one.from(Listing).where({ ID: listingId }));
+    if (!listing) {
+      return req.error(404, "Listing not found");
+    }
+    if (listing.sellerId !== userId) {
+      return req.error(403, "Not authorized to access this listing");
+    }
+
+    // Load certified fields
+    const certifiedFields = await cds.run(SELECT.from(CertifiedField).where({ listingId }));
+
+    // Load photos ordered by sortOrder
+    const photos = await cds.run(
+      SELECT.from(ListingPhoto).where({ listingId }).orderBy("sortOrder asc"),
+    );
+
+    return {
+      listing: JSON.stringify(listing),
+      certifiedFields: JSON.stringify(certifiedFields || []),
+      photos: JSON.stringify(photos || []),
     };
   };
 
