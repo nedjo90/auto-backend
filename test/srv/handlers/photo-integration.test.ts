@@ -139,7 +139,7 @@ describe("Photo Management Integration", () => {
   describe("full upload flow", () => {
     it("should upload → compress → store blob → create record → return CDN URL", async () => {
       // Setup: listing exists, owned by seller
-      mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "seller-1" });
+      mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "seller-1" }); // listing
       mockValidateMimeType.mockReturnValue(true);
       mockValidateFileSize.mockReturnValue(true);
       mockCanUploadPhoto.mockResolvedValue(true);
@@ -149,6 +149,9 @@ describe("Photo Management Integration", () => {
       });
       mockGetNextSortOrder.mockResolvedValue(0);
       mockRun.mockResolvedValueOnce(undefined); // INSERT
+      mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "seller-1" }); // re-fetch listing
+      mockRun.mockResolvedValueOnce([{ ID: "photo-uuid-1" }]); // all photos
+      mockRun.mockResolvedValueOnce(undefined); // UPDATE score
 
       const req = makeReq({
         listingId: "listing-1",
@@ -284,13 +287,16 @@ describe("Photo Management Integration", () => {
     it.each(["image/jpeg", "image/png", "image/webp", "image/heic"])(
       "should accept %s",
       async (mimeType) => {
-        mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "seller-1" });
+        mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "seller-1" }); // listing
         mockValidateMimeType.mockReturnValue(true);
         mockValidateFileSize.mockReturnValue(true);
         mockCanUploadPhoto.mockResolvedValue(true);
         mockUploadPhotoBlob.mockResolvedValue({ blobUrl: "b", cdnUrl: "c" });
         mockGetNextSortOrder.mockResolvedValue(0);
-        mockRun.mockResolvedValueOnce(undefined);
+        mockRun.mockResolvedValueOnce(undefined); // INSERT
+        mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "seller-1" }); // re-fetch listing
+        mockRun.mockResolvedValueOnce([{ ID: "p1" }]); // all photos
+        mockRun.mockResolvedValueOnce(undefined); // UPDATE score
 
         const req = makeReq({
           listingId: "listing-1",

@@ -140,7 +140,7 @@ describe("Photo Management Handlers", () => {
 
   // Helper: set up a successful upload scenario
   function setupUploadSuccess() {
-    mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "user-1" }); // listing
+    mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "user-1" }); // listing lookup
     mockValidateMimeType.mockReturnValue(true);
     mockValidateFileSize.mockReturnValue(true);
     mockCanUploadPhoto.mockResolvedValue(true);
@@ -150,6 +150,10 @@ describe("Photo Management Handlers", () => {
     });
     mockGetNextSortOrder.mockResolvedValue(0);
     mockRun.mockResolvedValueOnce(undefined); // INSERT
+    // Score recalculation calls (no longer in try/catch)
+    mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "user-1" }); // re-fetch listing
+    mockRun.mockResolvedValueOnce([{ ID: "photo-uuid-123" }]); // all photos
+    mockRun.mockResolvedValueOnce(undefined); // UPDATE score
   }
 
   // ─── uploadPhoto ────────────────────────────────────────────────────
@@ -178,7 +182,7 @@ describe("Photo Management Handlers", () => {
     });
 
     it("should set isPrimary=false for subsequent photos", async () => {
-      mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "user-1" });
+      mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "user-1" }); // listing
       mockValidateMimeType.mockReturnValue(true);
       mockValidateFileSize.mockReturnValue(true);
       mockCanUploadPhoto.mockResolvedValue(true);
@@ -188,6 +192,14 @@ describe("Photo Management Handlers", () => {
       });
       mockGetNextSortOrder.mockResolvedValue(3);
       mockRun.mockResolvedValueOnce(undefined); // INSERT
+      mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "user-1" }); // re-fetch listing
+      mockRun.mockResolvedValueOnce([
+        { ID: "p1" },
+        { ID: "p2" },
+        { ID: "p3" },
+        { ID: "photo-uuid-123" },
+      ]); // all photos
+      mockRun.mockResolvedValueOnce(undefined); // UPDATE score
 
       const req = makeReq(validData);
       const result = await (handler as any).handleUploadPhoto(req);

@@ -735,24 +735,25 @@ export default class SellerServiceHandler extends cds.ApplicationService {
       throw err;
     }
 
-    // Recalculate visibility score with updated photo count
-    try {
-      const allPhotos = await cds.run(SELECT.from(ListingPhoto).where({ listingId }));
-      const scoreInput: VisibilityScoreInput = {
-        listing,
-        photoCount: allPhotos.length,
-        hasHistoryReport: false,
-      };
-      const scoreResult = calculateVisibilityScore(scoreInput);
-      await cds.run(
-        UPDATE(Listing)
-          .set({ visibilityScore: scoreResult.score, visibilityLabel: scoreResult.label })
-          .where({ ID: listingId }),
-      );
-      await broadcastScoreUpdate(userId, scoreResult);
-    } catch (err) {
-      LOG.warn(`Failed to recalculate visibility score after photo upload: ${err}`);
-    }
+    // Recalculate visibility score with updated photo count.
+    // Re-fetch listing to ensure field data is current (concurrent updates may have occurred).
+    const currentListing = await cds.run(SELECT.one.from(Listing).where({ ID: listingId }));
+    const allPhotos = await cds.run(SELECT.from(ListingPhoto).where({ listingId }));
+    const uploadScoreInput: VisibilityScoreInput = {
+      listing: currentListing,
+      photoCount: allPhotos.length,
+      hasHistoryReport: false,
+    };
+    const uploadScoreResult = calculateVisibilityScore(uploadScoreInput);
+    await cds.run(
+      UPDATE(Listing)
+        .set({
+          visibilityScore: uploadScoreResult.score,
+          visibilityLabel: uploadScoreResult.label,
+        })
+        .where({ ID: listingId }),
+    );
+    await broadcastScoreUpdate(userId, uploadScoreResult);
 
     // Audit log
     try {
@@ -906,23 +907,23 @@ export default class SellerServiceHandler extends cds.ApplicationService {
       }
     }
 
-    // Recalculate visibility score with updated photo count
-    try {
-      const scoreInput: VisibilityScoreInput = {
-        listing,
-        photoCount: remaining.length,
-        hasHistoryReport: false,
-      };
-      const scoreResult = calculateVisibilityScore(scoreInput);
-      await cds.run(
-        UPDATE(Listing)
-          .set({ visibilityScore: scoreResult.score, visibilityLabel: scoreResult.label })
-          .where({ ID: listingId }),
-      );
-      await broadcastScoreUpdate(userId!, scoreResult);
-    } catch (err) {
-      LOG.warn(`Failed to recalculate visibility score after photo delete: ${err}`);
-    }
+    // Recalculate visibility score with updated photo count.
+    // Listing fields don't change on photo delete, so no re-fetch needed.
+    const deleteScoreInput: VisibilityScoreInput = {
+      listing,
+      photoCount: remaining.length,
+      hasHistoryReport: false,
+    };
+    const deleteScoreResult = calculateVisibilityScore(deleteScoreInput);
+    await cds.run(
+      UPDATE(Listing)
+        .set({
+          visibilityScore: deleteScoreResult.score,
+          visibilityLabel: deleteScoreResult.label,
+        })
+        .where({ ID: listingId }),
+    );
+    await broadcastScoreUpdate(userId!, deleteScoreResult);
 
     // Audit log
     try {
