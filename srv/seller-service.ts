@@ -578,7 +578,10 @@ export default class SellerServiceHandler extends cds.ApplicationService {
       return req.error(404, "Listing not found");
     }
     const userId = (req.user as { id?: string })?.id;
-    if (!userId || listing.sellerId !== userId) {
+    if (!userId) {
+      return req.error(401, "Authentication required");
+    }
+    if (listing.sellerId !== userId) {
       return req.error(403, "Not authorized to upload photos to this listing");
     }
 
@@ -594,6 +597,14 @@ export default class SellerServiceHandler extends cds.ApplicationService {
     if (!validateFileSize(fileSize)) {
       return req.error(400, "File size exceeds maximum allowed limit");
     }
+
+    // Validate width/height if provided
+    const safeWidth =
+      width !== undefined && typeof width === "number" && width >= 1 && width <= 50000 ? width : 0;
+    const safeHeight =
+      height !== undefined && typeof height === "number" && height >= 1 && height <= 50000
+        ? height
+        : 0;
 
     // Check MAX_PHOTOS limit
     if (!(await canUploadPhoto(listingId))) {
@@ -612,23 +623,53 @@ export default class SellerServiceHandler extends cds.ApplicationService {
     const sortOrder = await getNextSortOrder(listingId);
     const isPrimary = sortOrder === 0;
 
-    // Create DB record
+    // Create DB record — if INSERT fails, clean up the orphaned blob
     const photoId = cds.utils.uuid();
-    await cds.run(
-      INSERT.into(ListingPhoto).entries({
-        ID: photoId,
-        listingId,
-        blobUrl,
-        cdnUrl,
-        sortOrder,
-        isPrimary,
-        fileSize,
-        mimeType,
-        width: width || 0,
-        height: height || 0,
-        uploadedAt: new Date().toISOString(),
-      }),
-    );
+    try {
+      await cds.run(
+        INSERT.into(ListingPhoto).entries({
+          ID: photoId,
+          listingId,
+          blobUrl,
+          cdnUrl,
+          sortOrder,
+          isPrimary,
+          fileSize,
+          mimeType,
+          width: safeWidth,
+          height: safeHeight,
+          uploadedAt: new Date().toISOString(),
+        }),
+      );
+    } catch (err) {
+      try {
+        await deletePhotoBlob(blobUrl);
+      } catch {
+        LOG.warn(`Failed to clean up orphaned blob after INSERT failure: ${blobUrl}`);
+      }
+      throw err;
+    }
+
+    // Recalculate visibility score (photo weight integration in Story 3-5)
+    try {
+      const filledFields = getFilledFieldsFromListing(listing);
+      const score = calculateVisibilityScore(filledFields);
+      await cds.run(UPDATE(Listing).set({ visibilityScore: score }).where({ ID: listingId }));
+    } catch (err) {
+      LOG.warn(`Failed to recalculate visibility score after photo upload: ${err}`);
+    }
+
+    // Audit log
+    try {
+      await logAudit({
+        userId,
+        action: "photo.upload",
+        resource: "ListingPhoto",
+        details: JSON.stringify({ photoId, listingId, mimeType, fileSize, sortOrder }),
+      });
+    } catch {
+      LOG.warn("Failed to log audit for photo upload");
+    }
 
     LOG.info(`Photo uploaded for listing ${listingId}: ${photoId} (order: ${sortOrder})`);
 
@@ -639,8 +680,8 @@ export default class SellerServiceHandler extends cds.ApplicationService {
       isPrimary,
       fileSize,
       mimeType,
-      width: width || 0,
-      height: height || 0,
+      width: safeWidth,
+      height: safeHeight,
     };
   };
 
@@ -671,13 +712,22 @@ export default class SellerServiceHandler extends cds.ApplicationService {
       return req.error(404, "Listing not found");
     }
     const userId = (req.user as { id?: string })?.id;
-    if (!userId || listing.sellerId !== userId) {
+    if (!userId) {
+      return req.error(401, "Authentication required");
+    }
+    if (listing.sellerId !== userId) {
       return req.error(403, "Not authorized to reorder photos of this listing");
     }
 
-    // Verify all photo IDs belong to this listing
+    // Verify all photo IDs belong to this listing and count matches
     const existingPhotos = await cds.run(SELECT.from(ListingPhoto).where({ listingId }));
     const existingIds = new Set(existingPhotos.map((p: { ID: string }) => p.ID));
+    if (photoIds.length !== existingIds.size) {
+      return req.error(
+        400,
+        `All photos must be included in reorder (expected ${existingIds.size}, got ${photoIds.length})`,
+      );
+    }
     for (const id of photoIds) {
       if (!existingIds.has(id)) {
         return req.error(400, `Photo ${id} does not belong to listing ${listingId}`);
@@ -690,6 +740,18 @@ export default class SellerServiceHandler extends cds.ApplicationService {
       await cds.run(
         UPDATE(ListingPhoto).set({ sortOrder: i, isPrimary }).where({ ID: photoIds[i] }),
       );
+    }
+
+    // Audit log
+    try {
+      await logAudit({
+        userId,
+        action: "photo.reorder",
+        resource: "ListingPhoto",
+        details: JSON.stringify({ listingId, photoIds }),
+      });
+    } catch {
+      LOG.warn("Failed to log audit for photo reorder");
     }
 
     LOG.info(`Photos reordered for listing ${listingId}: ${photoIds.length} photos`);
@@ -713,7 +775,10 @@ export default class SellerServiceHandler extends cds.ApplicationService {
       return req.error(404, "Listing not found");
     }
     const userId = (req.user as { id?: string })?.id;
-    if (!userId || listing.sellerId !== userId) {
+    if (!userId) {
+      return req.error(401, "Authentication required");
+    }
+    if (listing.sellerId !== userId) {
       return req.error(403, "Not authorized to delete photos from this listing");
     }
 
@@ -744,6 +809,27 @@ export default class SellerServiceHandler extends cds.ApplicationService {
           UPDATE(ListingPhoto).set({ sortOrder: i, isPrimary }).where({ ID: remaining[i].ID }),
         );
       }
+    }
+
+    // Recalculate visibility score (photo weight integration in Story 3-5)
+    try {
+      const filledFields = getFilledFieldsFromListing(listing);
+      const score = calculateVisibilityScore(filledFields);
+      await cds.run(UPDATE(Listing).set({ visibilityScore: score }).where({ ID: listingId }));
+    } catch (err) {
+      LOG.warn(`Failed to recalculate visibility score after photo delete: ${err}`);
+    }
+
+    // Audit log
+    try {
+      await logAudit({
+        userId,
+        action: "photo.delete",
+        resource: "ListingPhoto",
+        details: JSON.stringify({ photoId, listingId, remainingCount: remaining.length }),
+      });
+    } catch {
+      LOG.warn("Failed to log audit for photo delete");
     }
 
     LOG.info(`Photo deleted from listing ${listingId}: ${photoId}`);
