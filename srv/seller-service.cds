@@ -19,6 +19,46 @@ service SellerService {
     sources : LargeString;   // JSON array of ApiSourceStatus
   };
 
+  @readonly
+  entity ListingPhotos as projection on auto.ListingPhoto;
+
+  /** Upload a photo for a listing */
+  action uploadPhoto(
+    listingId : String(36) not null,
+    content   : LargeBinary not null,
+    mimeType  : String(50) not null,
+    fileSize  : Integer not null,
+    width     : Integer,
+    height    : Integer
+  ) returns {
+    ID        : UUID;
+    cdnUrl    : String(500);
+    sortOrder : Integer;
+    isPrimary : Boolean;
+    fileSize  : Integer;
+    mimeType  : String(50);
+    width     : Integer;
+    height    : Integer;
+  };
+
+  /** Reorder photos for a listing */
+  action reorderPhotos(
+    listingId : String(36) not null,
+    photoIds  : LargeString not null   // JSON array of photo IDs in new order
+  ) returns {
+    success : Boolean;
+    message : String;
+  };
+
+  /** Delete a photo from a listing */
+  action deletePhoto(
+    listingId : String(36) not null,
+    photoId   : String(36) not null
+  ) returns {
+    success : Boolean;
+    message : String;
+  };
+
   /** Update a single listing field and recalculate visibility score */
   action updateListingField(
     listingId : String(36) not null,

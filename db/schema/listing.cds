@@ -58,6 +58,7 @@ entity Listing : cuid, managed {
 
   // Associations
   certifiedFields   : Composition of many CertifiedField on certifiedFields.listingId = $self.ID;
+  photos            : Composition of many ListingPhoto on photos.listingId = $self.ID;
 }
 
 // ─── Certified Field (Story 3-2) ──────────────────────────────────────────
@@ -93,6 +94,21 @@ entity ApiCachedData : cuid {
   fetchedAt         : Timestamp;
   expiresAt         : Timestamp;
   isValid           : Boolean default true;
+}
+
+// ─── Listing Photo (Story 3-4) ──────────────────────────────────────────
+
+entity ListingPhoto : cuid, managed {
+  listingId   : String(36) not null;
+  blobUrl     : String(500);
+  cdnUrl      : String(500);
+  sortOrder   : Integer default 0;
+  isPrimary   : Boolean default false;
+  fileSize    : Integer;               // bytes
+  mimeType    : String(50);
+  width       : Integer;
+  height      : Integer;
+  uploadedAt  : Timestamp;
 }
 
 // ─── Indexes ──────────────────────────────────────────────────────────────

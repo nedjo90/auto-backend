@@ -89,6 +89,46 @@ describe("CDS Schema - CertifiedField (Story 3-3 extensions)", () => {
   });
 });
 
+describe("CDS Schema - ListingPhoto (Story 3-4, Task 1)", () => {
+  it("should define ListingPhoto entity with cuid and managed aspects", () => {
+    expect(listingCds).toContain("entity ListingPhoto : cuid, managed");
+  });
+
+  it("should have all required fields", () => {
+    const fields = [
+      "listingId",
+      "blobUrl",
+      "cdnUrl",
+      "sortOrder",
+      "isPrimary",
+      "fileSize",
+      "mimeType",
+      "width",
+      "height",
+      "uploadedAt",
+    ];
+    for (const field of fields) {
+      expect(listingCds).toContain(field);
+    }
+  });
+
+  it("should have listingId as not null", () => {
+    expect(listingCds).toMatch(/listingId\s+:\s+String\(36\)\s+not\s+null/);
+  });
+
+  it("should have default sortOrder of 0", () => {
+    expect(listingCds).toContain("sortOrder   : Integer default 0");
+  });
+
+  it("should have default isPrimary of false", () => {
+    expect(listingCds).toContain("isPrimary   : Boolean default false");
+  });
+
+  it("should have photos composition on Listing entity", () => {
+    expect(listingCds).toContain("Composition of many ListingPhoto");
+  });
+});
+
 describe("CDS Schema - CertifiedFieldHistory (Story 3-3, Task 2)", () => {
   it("should define CertifiedFieldHistory entity", () => {
     expect(listingCds).toContain("entity CertifiedFieldHistory : cuid");

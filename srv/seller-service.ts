@@ -18,7 +18,21 @@ import { getCertifiedFields, overrideCertifiedField } from "./lib/certification"
 import { getCachedResponse, setCachedResponse } from "./lib/api-cache";
 import { logAudit } from "./lib/audit-logger";
 import { calculateVisibilityScore, getFilledFieldsFromListing } from "./lib/visibility-score";
-import { validateListingField, CERTIFIABLE_FIELDS, LISTING_FIELDS } from "@auto/shared";
+import {
+  validateMimeType,
+  validateFileSize,
+  canUploadPhoto,
+  uploadPhotoBlob,
+  deletePhotoBlob,
+  getNextSortOrder,
+  getMaxPhotos,
+} from "./lib/photo-storage";
+import {
+  validateListingField,
+  CERTIFIABLE_FIELDS,
+  LISTING_FIELDS,
+  PHOTO_ALLOWED_MIME_TYPES,
+} from "@auto/shared";
 
 const LOG = cds.log("seller");
 
@@ -253,6 +267,9 @@ export default class SellerServiceHandler extends cds.ApplicationService {
   async init() {
     this.on("autoFillByPlate", this.handleAutoFill);
     this.on("updateListingField", this.handleUpdateListingField);
+    this.on("uploadPhoto", this.handleUploadPhoto);
+    this.on("reorderPhotos", this.handleReorderPhotos);
+    this.on("deletePhoto", this.handleDeletePhoto);
     await super.init();
   }
 
@@ -537,5 +554,200 @@ export default class SellerServiceHandler extends cds.ApplicationService {
       visibilityScore: newScore,
       previousCertifiedValue: previousCertifiedValue || null,
     };
+  };
+
+  // ─── Photo Management Handlers (Story 3-4) ─────────────────────────────
+
+  private handleUploadPhoto = async (req: cds.Request) => {
+    const { listingId, content, mimeType, fileSize, width, height } = req.data as {
+      listingId: string;
+      content: Buffer;
+      mimeType: string;
+      fileSize: number;
+      width?: number;
+      height?: number;
+    };
+
+    const entities = cds.entities("auto");
+    const Listing = entities["Listing"];
+    const ListingPhoto = entities["ListingPhoto"];
+
+    // Validate listing exists and ownership
+    const listing = await cds.run(SELECT.one.from(Listing).where({ ID: listingId }));
+    if (!listing) {
+      return req.error(404, "Listing not found");
+    }
+    const userId = (req.user as { id?: string })?.id;
+    if (!userId || listing.sellerId !== userId) {
+      return req.error(403, "Not authorized to upload photos to this listing");
+    }
+
+    // Validate MIME type
+    if (!validateMimeType(mimeType)) {
+      return req.error(
+        400,
+        `Invalid file type: ${mimeType}. Allowed: ${PHOTO_ALLOWED_MIME_TYPES.join(", ")}`,
+      );
+    }
+
+    // Validate file size
+    if (!validateFileSize(fileSize)) {
+      return req.error(400, "File size exceeds maximum allowed limit");
+    }
+
+    // Check MAX_PHOTOS limit
+    if (!(await canUploadPhoto(listingId))) {
+      const max = getMaxPhotos();
+      return req.error(400, `Maximum number of photos (${max}) reached for this listing`);
+    }
+
+    // Upload to blob storage
+    const { blobUrl, cdnUrl } = await uploadPhotoBlob(
+      listingId,
+      Buffer.isBuffer(content) ? content : Buffer.from(content),
+      mimeType,
+    );
+
+    // Determine sort order and primary status
+    const sortOrder = await getNextSortOrder(listingId);
+    const isPrimary = sortOrder === 0;
+
+    // Create DB record
+    const photoId = cds.utils.uuid();
+    await cds.run(
+      INSERT.into(ListingPhoto).entries({
+        ID: photoId,
+        listingId,
+        blobUrl,
+        cdnUrl,
+        sortOrder,
+        isPrimary,
+        fileSize,
+        mimeType,
+        width: width || 0,
+        height: height || 0,
+        uploadedAt: new Date().toISOString(),
+      }),
+    );
+
+    LOG.info(`Photo uploaded for listing ${listingId}: ${photoId} (order: ${sortOrder})`);
+
+    return {
+      ID: photoId,
+      cdnUrl,
+      sortOrder,
+      isPrimary,
+      fileSize,
+      mimeType,
+      width: width || 0,
+      height: height || 0,
+    };
+  };
+
+  private handleReorderPhotos = async (req: cds.Request) => {
+    const { listingId, photoIds: photoIdsJson } = req.data as {
+      listingId: string;
+      photoIds: string;
+    };
+
+    const entities = cds.entities("auto");
+    const Listing = entities["Listing"];
+    const ListingPhoto = entities["ListingPhoto"];
+
+    // Parse photo IDs
+    let photoIds: string[];
+    try {
+      photoIds = JSON.parse(photoIdsJson);
+      if (!Array.isArray(photoIds) || photoIds.length === 0) {
+        return req.error(400, "photoIds must be a non-empty array of photo IDs");
+      }
+    } catch {
+      return req.error(400, "Invalid photoIds format: must be a JSON array");
+    }
+
+    // Validate listing exists and ownership
+    const listing = await cds.run(SELECT.one.from(Listing).where({ ID: listingId }));
+    if (!listing) {
+      return req.error(404, "Listing not found");
+    }
+    const userId = (req.user as { id?: string })?.id;
+    if (!userId || listing.sellerId !== userId) {
+      return req.error(403, "Not authorized to reorder photos of this listing");
+    }
+
+    // Verify all photo IDs belong to this listing
+    const existingPhotos = await cds.run(SELECT.from(ListingPhoto).where({ listingId }));
+    const existingIds = new Set(existingPhotos.map((p: { ID: string }) => p.ID));
+    for (const id of photoIds) {
+      if (!existingIds.has(id)) {
+        return req.error(400, `Photo ${id} does not belong to listing ${listingId}`);
+      }
+    }
+
+    // Update sort order for each photo
+    for (let i = 0; i < photoIds.length; i++) {
+      const isPrimary = i === 0;
+      await cds.run(
+        UPDATE(ListingPhoto).set({ sortOrder: i, isPrimary }).where({ ID: photoIds[i] }),
+      );
+    }
+
+    LOG.info(`Photos reordered for listing ${listingId}: ${photoIds.length} photos`);
+
+    return { success: true, message: `${photoIds.length} photos reordered` };
+  };
+
+  private handleDeletePhoto = async (req: cds.Request) => {
+    const { listingId, photoId } = req.data as {
+      listingId: string;
+      photoId: string;
+    };
+
+    const entities = cds.entities("auto");
+    const Listing = entities["Listing"];
+    const ListingPhoto = entities["ListingPhoto"];
+
+    // Validate listing exists and ownership
+    const listing = await cds.run(SELECT.one.from(Listing).where({ ID: listingId }));
+    if (!listing) {
+      return req.error(404, "Listing not found");
+    }
+    const userId = (req.user as { id?: string })?.id;
+    if (!userId || listing.sellerId !== userId) {
+      return req.error(403, "Not authorized to delete photos from this listing");
+    }
+
+    // Find the photo
+    const photo = await cds.run(SELECT.one.from(ListingPhoto).where({ ID: photoId, listingId }));
+    if (!photo) {
+      return req.error(404, "Photo not found");
+    }
+
+    // Delete from blob storage
+    try {
+      await deletePhotoBlob(photo.blobUrl);
+    } catch (err) {
+      LOG.warn(`Failed to delete blob for photo ${photoId}:`, err);
+    }
+
+    // Delete DB record
+    await cds.run(DELETE.from(ListingPhoto).where({ ID: photoId }));
+
+    // Reorder remaining photos to fill gap
+    const remaining = await cds.run(
+      SELECT.from(ListingPhoto).where({ listingId }).orderBy("sortOrder asc"),
+    );
+    for (let i = 0; i < remaining.length; i++) {
+      const isPrimary = i === 0;
+      if (remaining[i].sortOrder !== i || remaining[i].isPrimary !== isPrimary) {
+        await cds.run(
+          UPDATE(ListingPhoto).set({ sortOrder: i, isPrimary }).where({ ID: remaining[i].ID }),
+        );
+      }
+    }
+
+    LOG.info(`Photo deleted from listing ${listingId}: ${photoId}`);
+
+    return { success: true, message: "Photo deleted" };
   };
 }
