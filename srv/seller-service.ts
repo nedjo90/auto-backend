@@ -18,8 +18,7 @@ import { getCertifiedFields, overrideCertifiedField } from "./lib/certification"
 import { getCachedResponse, setCachedResponse } from "./lib/api-cache";
 import { logAudit } from "./lib/audit-logger";
 import { calculateVisibilityScore, getFilledFieldsFromListing } from "./lib/visibility-score";
-import { validateListingField } from "@auto/shared";
-import { CERTIFIABLE_FIELDS } from "@auto/shared";
+import { validateListingField, CERTIFIABLE_FIELDS, LISTING_FIELDS } from "@auto/shared";
 
 const LOG = cds.log("seller");
 
@@ -443,6 +442,13 @@ export default class SellerServiceHandler extends cds.ApplicationService {
       value: string;
     };
 
+    // Whitelist fieldName against valid listing fields to prevent injection
+    const validFieldNames = LISTING_FIELDS.map((f) => f.fieldName);
+    if (!validFieldNames.includes(fieldName)) {
+      req.error(400, `Invalid field name: ${fieldName}`);
+      return;
+    }
+
     const entities = cds.entities("auto");
     const Listing = entities["Listing"];
 
@@ -507,7 +513,11 @@ export default class SellerServiceHandler extends cds.ApplicationService {
     // Update the listing field
     await cds.run(UPDATE(Listing).set(updateData).where({ ID: listingId }));
 
-    // Recalculate visibility score
+    // Recalculate visibility score.
+    // NOTE: We intentionally re-SELECT the full listing here rather than merging
+    // the update into the score calculation. The visibility score depends on ALL
+    // current field values, so a fresh read ensures correctness even if concurrent
+    // updates occurred. The extra DB round-trip is acceptable for data integrity.
     const updatedListing = await cds.run(SELECT.one.from(Listing).where({ ID: listingId }));
     const filledFields = getFilledFieldsFromListing(updatedListing);
     const newScore = calculateVisibilityScore(filledFields);

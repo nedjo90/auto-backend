@@ -198,19 +198,28 @@ describe("visibility-score", () => {
       expect(filled.price).toBe(true);
     });
 
-    it("should mark fields as not filled when null/empty/0", () => {
+    it("should mark fields as not filled when null or empty string", () => {
       const listing = {
         make: null,
         model: "",
-        year: 0,
         price: undefined,
       };
 
       const filled = getFilledFieldsFromListing(listing);
       expect(filled.make).toBe(false);
       expect(filled.model).toBe(false);
-      expect(filled.year).toBe(false);
       expect(filled.price).toBe(false);
+    });
+
+    it("should treat 0 as filled", () => {
+      const listing = {
+        year: 0,
+        mileage: 0,
+      };
+
+      const filled = getFilledFieldsFromListing(listing);
+      expect(filled.year).toBe(true);
+      expect(filled.mileage).toBe(true);
     });
 
     it("should handle missing fields as not filled", () => {

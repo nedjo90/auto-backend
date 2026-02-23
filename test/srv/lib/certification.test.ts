@@ -42,6 +42,12 @@ jest.mock("@sap/cds", () => {
   }),
 });
 
+(global as any).DELETE = {
+  from: jest.fn().mockReturnValue({
+    where: jest.fn().mockReturnValue("delete-query"),
+  }),
+};
+
 const {
   markFieldCertified,
   getCertifiedFields,
@@ -216,6 +222,8 @@ describe("certification", () => {
       mockRun.mockResolvedValueOnce(existingCertified);
       // UPDATE marks original as overridden
       mockRun.mockResolvedValueOnce(undefined);
+      // DELETE previous non-certified records
+      mockRun.mockResolvedValueOnce(undefined);
       // INSERT new seller_declared record
       mockRun.mockResolvedValueOnce(undefined);
       // INSERT history record
@@ -233,8 +241,8 @@ describe("certification", () => {
         isCertified: false,
         isOverridden: false,
       });
-      // 4 DB calls: SELECT, UPDATE, INSERT cert, INSERT history
-      expect(mockRun).toHaveBeenCalledTimes(4);
+      // 5 DB calls: SELECT, UPDATE, DELETE, INSERT cert, INSERT history
+      expect(mockRun).toHaveBeenCalledTimes(5);
     });
 
     it("should preserve the original certified value in history", async () => {
@@ -247,10 +255,11 @@ describe("certification", () => {
         isCertified: true,
       };
 
-      mockRun.mockResolvedValueOnce(existingCertified);
-      mockRun.mockResolvedValueOnce(undefined);
-      mockRun.mockResolvedValueOnce(undefined);
-      mockRun.mockResolvedValueOnce(undefined);
+      mockRun.mockResolvedValueOnce(existingCertified); // SELECT
+      mockRun.mockResolvedValueOnce(undefined); // UPDATE
+      mockRun.mockResolvedValueOnce(undefined); // DELETE
+      mockRun.mockResolvedValueOnce(undefined); // INSERT cert
+      mockRun.mockResolvedValueOnce(undefined); // INSERT history
 
       const result = await overrideCertifiedField("listing-2", "color", "bleu", "seller-2");
 
@@ -295,15 +304,50 @@ describe("certification", () => {
         isCertified: true,
       };
 
-      mockRun.mockResolvedValueOnce(existingCertified);
-      mockRun.mockResolvedValueOnce(undefined);
-      mockRun.mockResolvedValueOnce(undefined);
-      mockRun.mockResolvedValueOnce(undefined);
+      mockRun.mockResolvedValueOnce(existingCertified); // SELECT
+      mockRun.mockResolvedValueOnce(undefined); // UPDATE
+      mockRun.mockResolvedValueOnce(undefined); // DELETE
+      mockRun.mockResolvedValueOnce(undefined); // INSERT cert
+      mockRun.mockResolvedValueOnce(undefined); // INSERT history
 
       const result = await overrideCertifiedField("listing-3", "fuelType", "essence", "seller-3");
 
       expect(result.newRecord.source).toBe("seller_declared");
       expect(result.newRecord.isCertified).toBe(false);
+    });
+
+    it("should remove previous non-certified record on double override", async () => {
+      const existingCertified = {
+        ID: "cert-4",
+        listingId: "listing-4",
+        fieldName: "color",
+        fieldValue: "rouge",
+        source: "SIV",
+        isCertified: true,
+      };
+
+      // First override
+      mockRun.mockResolvedValueOnce(existingCertified); // SELECT
+      mockRun.mockResolvedValueOnce(undefined); // UPDATE
+      mockRun.mockResolvedValueOnce(undefined); // DELETE previous non-certified
+      mockRun.mockResolvedValueOnce(undefined); // INSERT new non-certified
+      mockRun.mockResolvedValueOnce(undefined); // INSERT history
+
+      await overrideCertifiedField("listing-4", "color", "bleu", "seller-1");
+
+      // Second override - should find the first override's certified record
+      mockRun.mockResolvedValueOnce(existingCertified); // SELECT (still finds original certified)
+      mockRun.mockResolvedValueOnce(undefined); // UPDATE
+      mockRun.mockResolvedValueOnce(undefined); // DELETE previous non-certified
+      mockRun.mockResolvedValueOnce(undefined); // INSERT new non-certified
+      mockRun.mockResolvedValueOnce(undefined); // INSERT history
+
+      const result = await overrideCertifiedField("listing-4", "color", "vert", "seller-1");
+
+      expect(result.previousValue).toBe("rouge");
+      expect(result.newRecord.fieldValue).toBe("vert");
+      // 10 DB calls total (5 per override)
+      expect(mockRun).toHaveBeenCalledTimes(10);
     });
   });
 });

@@ -31,6 +31,15 @@ const FIELD_WEIGHTS: Record<string, number> = {
   euroNorm: 2,
   energyClass: 1,
   critAirLevel: 2,
+  critAirLabel: 1,
+  critAirColor: 1,
+  bodyClass: 1,
+  engineCylinders: 1,
+  manufacturer: 1,
+  vehicleType: 1,
+  plantCountry: 1,
+  recallCount: 1,
+  variant: 2,
   transmission: 2,
   driveType: 1,
   numberOfDoors: 1,
@@ -72,7 +81,7 @@ export function getFilledFieldsFromListing(
 
   for (const field of LISTING_FIELDS) {
     const value = listing[field.fieldName];
-    filled[field.fieldName] = value != null && value !== "" && value !== 0;
+    filled[field.fieldName] = value != null && value !== "";
   }
 
   return filled;

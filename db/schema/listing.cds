@@ -74,7 +74,7 @@ entity CertifiedField : cuid, managed {
 
 // ─── Certified Field History (Story 3-3) ──────────────────────────────────
 
-entity CertifiedFieldHistory : cuid {
+entity CertifiedFieldHistory : cuid, managed {
   listingId       : String(36);
   fieldName       : String(100);
   originalValue   : String(2000);

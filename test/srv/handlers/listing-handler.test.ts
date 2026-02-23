@@ -136,7 +136,7 @@ describe("listing handler - field update integration", () => {
       const listing = { price: 15000, mileage: 0 };
       const filled = getFilledFieldsFromListing(listing);
       expect(filled.price).toBe(true);
-      expect(filled.mileage).toBe(false); // 0 is not "filled"
+      expect(filled.mileage).toBe(true); // 0 is a valid numeric value
     });
 
     it("should treat empty string as not filled", () => {

@@ -154,7 +154,10 @@ export async function overrideCertifiedField(
   // 1. Mark original as overridden
   await cds.run(UPDATE(certEntity).set({ isOverridden: true }).where({ ID: existing.ID }));
 
-  // 2. Create new record with seller-declared value
+  // 2. Remove any previous non-certified (overridden) records for this field
+  await cds.run(DELETE.from(certEntity).where({ listingId, fieldName, isCertified: false }));
+
+  // 3. Create new record with seller-declared value
   const newId = cds.utils.uuid();
   const newRecord: CertifiedFieldRecord = {
     ID: newId,
@@ -169,7 +172,7 @@ export async function overrideCertifiedField(
 
   await cds.run(INSERT.into(certEntity).entries(newRecord));
 
-  // 3. Record in history
+  // 4. Record in history
   const historyId = cds.utils.uuid();
   await cds.run(
     INSERT.into(historyEntity).entries({
