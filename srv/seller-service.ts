@@ -29,6 +29,7 @@ import {
   canUploadPhoto,
   uploadPhotoBlob,
   deletePhotoBlob,
+  deleteAllPhotosForListing,
   getNextSortOrder,
   getMaxPhotos,
 } from "./lib/photo-storage";
@@ -293,6 +294,8 @@ export default class SellerServiceHandler extends cds.ApplicationService {
   async init() {
     this.on("autoFillByPlate", this.handleAutoFill);
     this.on("saveDraft", this.handleSaveDraft);
+    this.on("duplicateDraft", this.handleDuplicateDraft);
+    this.on("deleteDraft", this.handleDeleteDraft);
     this.on("recalculateScore", this.handleRecalculateScore);
     this.on("updateListingField", this.handleUpdateListingField);
     this.on("uploadPhoto", this.handleUploadPhoto);
@@ -648,6 +651,164 @@ export default class SellerServiceHandler extends cds.ApplicationService {
       visibilityScore: scoreResult.score,
       visibilityLabel: scoreResult.label,
     };
+  };
+
+  private handleDuplicateDraft = async (req: cds.Request) => {
+    const { listingId } = req.data as { listingId: string };
+
+    const userId = (req.user as { id?: string })?.id;
+    if (!userId) {
+      return req.error(401, "Authentication required");
+    }
+
+    const entities = cds.entities("auto");
+    const Listing = entities["Listing"];
+    const ListingPhoto = entities["ListingPhoto"];
+
+    // Load source listing
+    const source = await cds.run(SELECT.one.from(Listing).where({ ID: listingId }));
+    if (!source) {
+      return req.error(404, "Listing not found");
+    }
+    if (source.sellerId !== userId) {
+      return req.error(403, "Not authorized to duplicate this listing");
+    }
+
+    // Build new listing data: copy declared fields only, NOT certified fields
+    const validFieldNames = new Set(LISTING_FIELDS.map((f) => f.fieldName));
+    const newListingData: Record<string, unknown> = {};
+    for (const fieldName of validFieldNames) {
+      if (source[fieldName] != null) {
+        newListingData[fieldName] = source[fieldName];
+      }
+    }
+
+    const newId = cds.utils.uuid();
+    await cds.run(
+      INSERT.into(Listing).entries({
+        ID: newId,
+        sellerId: userId,
+        status: "draft",
+        visibilityScore: 0,
+        visibilityLabel: "Partiellement documenté",
+        completionPercentage: 0,
+        ...newListingData,
+      }),
+    );
+
+    // Duplicate photos (copy DB records with new IDs, same blob URLs)
+    const sourcePhotos = await cds.run(
+      SELECT.from(ListingPhoto).where({ listingId }).orderBy("sortOrder asc"),
+    );
+    for (const photo of sourcePhotos) {
+      const newPhotoId = cds.utils.uuid();
+      await cds.run(
+        INSERT.into(ListingPhoto).entries({
+          ID: newPhotoId,
+          listingId: newId,
+          blobUrl: photo.blobUrl,
+          cdnUrl: photo.cdnUrl,
+          sortOrder: photo.sortOrder,
+          isPrimary: photo.isPrimary,
+          fileSize: photo.fileSize,
+          mimeType: photo.mimeType,
+          width: photo.width,
+          height: photo.height,
+          uploadedAt: photo.uploadedAt,
+        }),
+      );
+    }
+
+    // Recalculate scores for the new listing
+    const newListing = await cds.run(SELECT.one.from(Listing).where({ ID: newId }));
+    const newPhotos = await cds.run(SELECT.from(ListingPhoto).where({ listingId: newId }));
+    const scoreInput: VisibilityScoreInput = {
+      listing: newListing,
+      photoCount: newPhotos.length,
+      hasHistoryReport: false,
+    };
+    const scoreResult = calculateVisibilityScore(scoreInput);
+    const completionPct = calculateCompletionPercentage(newListing, newPhotos.length);
+
+    await cds.run(
+      UPDATE(Listing)
+        .set({
+          visibilityScore: scoreResult.score,
+          visibilityLabel: scoreResult.label,
+          completionPercentage: completionPct,
+        })
+        .where({ ID: newId }),
+    );
+
+    // Audit log
+    try {
+      await logAudit({
+        userId,
+        action: "listing.draft.duplicate",
+        resource: "Listing",
+        details: JSON.stringify({
+          sourceListingId: listingId,
+          newListingId: newId,
+          photosCount: sourcePhotos.length,
+        }),
+      });
+    } catch {
+      LOG.warn("Failed to log audit for duplicateDraft");
+    }
+
+    LOG.info(`Draft duplicated: ${listingId} → ${newId} (${sourcePhotos.length} photos copied)`);
+
+    return { listingId: newId, success: true };
+  };
+
+  private handleDeleteDraft = async (req: cds.Request) => {
+    const { listingId } = req.data as { listingId: string };
+
+    const userId = (req.user as { id?: string })?.id;
+    if (!userId) {
+      return req.error(401, "Authentication required");
+    }
+
+    const entities = cds.entities("auto");
+    const Listing = entities["Listing"];
+    const CertifiedField = entities["CertifiedField"];
+
+    // Load listing
+    const listing = await cds.run(SELECT.one.from(Listing).where({ ID: listingId }));
+    if (!listing) {
+      return req.error(404, "Listing not found");
+    }
+    if (listing.sellerId !== userId) {
+      return req.error(403, "Not authorized to delete this listing");
+    }
+    if (listing.status !== "draft") {
+      return req.error(400, "Only draft listings can be deleted via this action");
+    }
+
+    // Delete photos from blob storage and DB
+    await deleteAllPhotosForListing(listingId);
+
+    // Delete certified fields
+    await cds.run(DELETE.from(CertifiedField).where({ listingId }));
+
+    // Delete the listing itself
+    await cds.run(DELETE.from(Listing).where({ ID: listingId }));
+
+    // Audit log
+    try {
+      await logAudit({
+        userId,
+        action: "listing.draft.delete",
+        resource: "Listing",
+        details: JSON.stringify({ listingId }),
+      });
+    } catch {
+      LOG.warn("Failed to log audit for deleteDraft");
+    }
+
+    LOG.info(`Draft deleted: ${listingId}`);
+
+    return { success: true, message: "Draft deleted" };
   };
 
   private handleRecalculateScore = async (req: cds.Request) => {

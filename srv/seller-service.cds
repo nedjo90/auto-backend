@@ -83,6 +83,22 @@ service SellerService {
     visibilityLabel      : String(50);
   };
 
+  /** Duplicate an existing draft (copies declared fields + photos, NOT certified fields) */
+  action duplicateDraft(
+    listingId : String(36) not null
+  ) returns {
+    listingId : String(36);
+    success   : Boolean;
+  };
+
+  /** Delete a draft listing and all associated data */
+  action deleteDraft(
+    listingId : String(36) not null
+  ) returns {
+    success : Boolean;
+    message : String;
+  };
+
   /** Update a single listing field and recalculate visibility score */
   action updateListingField(
     listingId : String(36) not null,

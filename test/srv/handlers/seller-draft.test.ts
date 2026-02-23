@@ -144,9 +144,16 @@ jest.mock("../../../srv/lib/photo-storage", () => ({
 
 // Global CDS query helpers
 (global as any).SELECT = {
-  one: { from: jest.fn().mockReturnValue({ where: jest.fn().mockReturnValue("q") }) },
+  one: {
+    from: jest.fn().mockReturnValue({
+      where: jest.fn().mockReturnValue("q"),
+      columns: jest.fn().mockReturnValue({ where: jest.fn().mockReturnValue("q") }),
+    }),
+  },
   from: jest.fn().mockReturnValue({
-    where: jest.fn().mockReturnValue("q"),
+    where: jest.fn().mockReturnValue({
+      orderBy: jest.fn().mockReturnValue("q"),
+    }),
     orderBy: jest.fn().mockReturnValue("q"),
   }),
 };
@@ -597,5 +604,265 @@ describe("SellerService - saveDraft", () => {
         }),
       );
     });
+  });
+});
+
+// ─── duplicateDraft Tests ──────────────────────────────────────────────────
+
+describe("SellerService - duplicateDraft", () => {
+  let handleDuplicateDraft: any;
+
+  beforeAll(() => {
+    const handler = new SellerServiceHandler();
+    handler.on = (event: string, fn: any) => {
+      if (event === "duplicateDraft") {
+        handleDuplicateDraft = fn;
+      }
+    };
+    handler.init();
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockRun.mockReset();
+    mockCalculateVisibilityScore.mockReturnValue({
+      score: 40,
+      label: "Bien documenté",
+      suggestions: [],
+    });
+    const { calculateCompletionPercentage } = require("@auto/shared");
+    calculateCompletionPercentage.mockReturnValue(30);
+  });
+
+  it("should duplicate a draft with declared fields and photos", async () => {
+    const sourceListing = {
+      ID: "source-id",
+      sellerId: "test-user-1",
+      status: "draft",
+      make: "Renault",
+      model: "Clio",
+      price: 15000,
+      mileage: 50000,
+    };
+
+    // SELECT source listing
+    mockRun.mockResolvedValueOnce(sourceListing);
+    // INSERT new listing
+    mockRun.mockResolvedValueOnce(undefined);
+    // SELECT source photos
+    mockRun.mockResolvedValueOnce([
+      {
+        ID: "photo-1",
+        blobUrl: "blob1",
+        cdnUrl: "cdn1",
+        sortOrder: 0,
+        isPrimary: true,
+        fileSize: 1000,
+        mimeType: "image/jpeg",
+        width: 800,
+        height: 600,
+        uploadedAt: "2026-02-23",
+      },
+    ]);
+    // INSERT new photo
+    mockRun.mockResolvedValueOnce(undefined);
+    // SELECT new listing (for score calc)
+    mockRun.mockResolvedValueOnce({ ID: "new-draft-uuid", make: "Renault" });
+    // SELECT new photos
+    mockRun.mockResolvedValueOnce([{ ID: "new-photo-uuid" }]);
+    // UPDATE scores
+    mockRun.mockResolvedValueOnce(undefined);
+
+    const req = createMockRequest({ listingId: "source-id" });
+    const result = await handleDuplicateDraft(req);
+
+    expect(req.error).not.toHaveBeenCalled();
+    expect(result.listingId).toBe("new-draft-uuid");
+    expect(result.success).toBe(true);
+  });
+
+  it("should NOT copy certified fields", async () => {
+    mockRun.mockResolvedValueOnce({ ID: "source-id", sellerId: "test-user-1", make: "Renault" }); // SELECT source
+    mockRun.mockResolvedValueOnce(undefined); // INSERT new listing
+    mockRun.mockResolvedValueOnce([]); // SELECT source photos (none)
+    mockRun.mockResolvedValueOnce({ ID: "new-draft-uuid", make: "Renault" }); // SELECT new listing
+    mockRun.mockResolvedValueOnce([]); // SELECT new photos
+    mockRun.mockResolvedValueOnce(undefined); // UPDATE scores
+
+    const req = createMockRequest({ listingId: "source-id" });
+    await handleDuplicateDraft(req);
+
+    // markFieldCertified should NOT be called during duplication
+    expect(mockMarkFieldCertified).not.toHaveBeenCalled();
+  });
+
+  it("should return 404 when source listing not found", async () => {
+    mockRun.mockResolvedValueOnce(null);
+
+    const req = createMockRequest({ listingId: "nonexistent" });
+    await handleDuplicateDraft(req);
+
+    expect(req.error).toHaveBeenCalledWith(404, "Listing not found");
+  });
+
+  it("should return 403 when user is not the owner", async () => {
+    mockRun.mockResolvedValueOnce({ ID: "source-id", sellerId: "other-user" });
+
+    const req = createMockRequest({ listingId: "source-id" });
+    await handleDuplicateDraft(req);
+
+    expect(req.error).toHaveBeenCalledWith(403, expect.stringContaining("Not authorized"));
+  });
+
+  it("should set status to draft on duplicated listing", async () => {
+    mockRun.mockResolvedValueOnce({
+      ID: "source-id",
+      sellerId: "test-user-1",
+      status: "published",
+      make: "BMW",
+    });
+    mockRun.mockResolvedValueOnce(undefined); // INSERT
+    mockRun.mockResolvedValueOnce([]); // photos
+    mockRun.mockResolvedValueOnce({ ID: "new-draft-uuid" });
+    mockRun.mockResolvedValueOnce([]);
+    mockRun.mockResolvedValueOnce(undefined);
+
+    const req = createMockRequest({ listingId: "source-id" });
+    const result = await handleDuplicateDraft(req);
+
+    expect(result.success).toBe(true);
+    // The INSERT should include status: "draft"
+    expect((global as any).INSERT.into).toHaveBeenCalled();
+  });
+
+  it("should log audit for duplication", async () => {
+    mockRun.mockResolvedValueOnce({ ID: "source-id", sellerId: "test-user-1" });
+    mockRun.mockResolvedValueOnce(undefined);
+    mockRun.mockResolvedValueOnce([]);
+    mockRun.mockResolvedValueOnce({ ID: "new-draft-uuid" });
+    mockRun.mockResolvedValueOnce([]);
+    mockRun.mockResolvedValueOnce(undefined);
+
+    const req = createMockRequest({ listingId: "source-id" });
+    await handleDuplicateDraft(req);
+
+    expect(mockLogAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "listing.draft.duplicate",
+        resource: "Listing",
+      }),
+    );
+  });
+});
+
+// ─── deleteDraft Tests ─────────────────────────────────────────────────────
+
+const mockDeleteAllPhotos = require("../../../srv/lib/photo-storage").deleteAllPhotosForListing;
+
+describe("SellerService - deleteDraft", () => {
+  let handleDeleteDraft: any;
+
+  beforeAll(() => {
+    const handler = new SellerServiceHandler();
+    handler.on = (event: string, fn: any) => {
+      if (event === "deleteDraft") {
+        handleDeleteDraft = fn;
+      }
+    };
+    handler.init();
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockRun.mockReset();
+  });
+
+  it("should delete a draft listing and all associated data", async () => {
+    // SELECT listing
+    mockRun.mockResolvedValueOnce({ ID: "draft-1", sellerId: "test-user-1", status: "draft" });
+    // DELETE certified fields
+    mockRun.mockResolvedValueOnce(undefined);
+    // DELETE listing
+    mockRun.mockResolvedValueOnce(undefined);
+
+    const req = createMockRequest({ listingId: "draft-1" });
+    const result = await handleDeleteDraft(req);
+
+    expect(req.error).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    expect(result.message).toBe("Draft deleted");
+    expect(mockDeleteAllPhotos).toHaveBeenCalledWith("draft-1");
+  });
+
+  it("should return 404 when listing not found", async () => {
+    mockRun.mockResolvedValueOnce(null);
+
+    const req = createMockRequest({ listingId: "nonexistent" });
+    await handleDeleteDraft(req);
+
+    expect(req.error).toHaveBeenCalledWith(404, "Listing not found");
+  });
+
+  it("should return 403 when user is not the owner", async () => {
+    mockRun.mockResolvedValueOnce({ ID: "draft-1", sellerId: "other-user", status: "draft" });
+
+    const req = createMockRequest({ listingId: "draft-1" });
+    await handleDeleteDraft(req);
+
+    expect(req.error).toHaveBeenCalledWith(403, expect.stringContaining("Not authorized"));
+  });
+
+  it("should return 400 when listing is not a draft", async () => {
+    mockRun.mockResolvedValueOnce({
+      ID: "listing-1",
+      sellerId: "test-user-1",
+      status: "published",
+    });
+
+    const req = createMockRequest({ listingId: "listing-1" });
+    await handleDeleteDraft(req);
+
+    expect(req.error).toHaveBeenCalledWith(
+      400,
+      "Only draft listings can be deleted via this action",
+    );
+  });
+
+  it("should cascade delete certified fields", async () => {
+    mockRun.mockResolvedValueOnce({ ID: "draft-1", sellerId: "test-user-1", status: "draft" });
+    mockRun.mockResolvedValueOnce(undefined); // DELETE certified fields
+    mockRun.mockResolvedValueOnce(undefined); // DELETE listing
+
+    const req = createMockRequest({ listingId: "draft-1" });
+    await handleDeleteDraft(req);
+
+    expect((global as any).DELETE.from).toHaveBeenCalled();
+  });
+
+  it("should log audit for deletion", async () => {
+    mockRun.mockResolvedValueOnce({ ID: "draft-1", sellerId: "test-user-1", status: "draft" });
+    mockRun.mockResolvedValueOnce(undefined);
+    mockRun.mockResolvedValueOnce(undefined);
+
+    const req = createMockRequest({ listingId: "draft-1" });
+    await handleDeleteDraft(req);
+
+    expect(mockLogAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "listing.draft.delete",
+        resource: "Listing",
+      }),
+    );
+  });
+
+  it("should return 401 when user is not authenticated", async () => {
+    const req = {
+      data: { listingId: "draft-1" },
+      user: {},
+      error: jest.fn(),
+    };
+
+    await handleDeleteDraft(req);
+    expect(req.error).toHaveBeenCalledWith(401, "Authentication required");
   });
 });
