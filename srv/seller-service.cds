@@ -59,6 +59,17 @@ service SellerService {
     message : String;
   };
 
+  /** Recalculate visibility score for a listing */
+  action recalculateScore(
+    listingId : String(36) not null
+  ) returns {
+    score              : Integer;
+    label              : String(50);
+    suggestions        : LargeString;        // JSON array of ScoreSuggestion
+    normalizedScore    : Integer;
+    normalizationMessage : String(200);
+  };
+
   /** Update a single listing field and recalculate visibility score */
   action updateListingField(
     listingId : String(36) not null,
@@ -69,6 +80,8 @@ service SellerService {
     value                  : String(2000);
     status                 : String(20);      // certified, declared, empty
     visibilityScore        : Integer;
+    visibilityLabel        : String(50);
+    suggestions            : LargeString;     // JSON array of ScoreSuggestion
     previousCertifiedValue : String(2000);
   };
 }

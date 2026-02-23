@@ -12,19 +12,28 @@ export type SignalREvent =
   | "newContact"
   | "newAlert";
 
+/** SignalR event types for the /live-score hub. */
+export type LiveScoreEvent = "scoreUpdate";
+
 /** Payload for a SignalR event. */
 export interface SignalRMessage {
-  event: SignalREvent;
+  event: SignalREvent | LiveScoreEvent;
   data: Record<string, unknown>;
 }
 
+/** Hub names used in the application. */
+export const SIGNALR_HUBS = {
+  admin: "admin",
+  liveScore: "live-score",
+} as const;
+
 /**
  * Azure SignalR REST API client for server-side event emission.
- * Sends messages to the /admin hub targeting all connected admin clients.
+ * Supports broadcasting to all clients on a hub or targeting specific users.
  *
  * Requires env vars:
  *   SIGNALR_CONNECTION_STRING - Azure SignalR connection string
- *   SIGNALR_HUB_NAME - Hub name (defaults to "admin")
+ *   SIGNALR_HUB_NAME - Default hub name (defaults to "admin")
  */
 class SignalRClient {
   private connectionString: string | null = null;
@@ -64,22 +73,29 @@ class SignalRClient {
   }
 
   /**
-   * Send a message to all connected clients on the admin hub.
+   * Send a message to all connected clients on the default hub.
    */
   async broadcast(event: SignalREvent, data: Record<string, unknown>): Promise<void> {
+    await this.broadcastToHub(this.hubName, event, data);
+  }
+
+  /**
+   * Send a message to all connected clients on a specific hub.
+   */
+  async broadcastToHub(hub: string, event: string, data: Record<string, unknown>): Promise<void> {
     if (!this.endpoint || !this.accessKey) {
       LOG.debug(`SignalR not configured - skipping broadcast of '${event}'`);
       return;
     }
 
-    const url = `${this.endpoint}/api/v1/hubs/${this.hubName}`;
+    const url = `${this.endpoint}/api/v1/hubs/${hub}`;
 
     try {
       const response = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${this.generateToken()}`,
+          Authorization: `Bearer ${this.generateToken(hub)}`,
         },
         body: JSON.stringify({
           target: event,
@@ -96,12 +112,50 @@ class SignalRClient {
   }
 
   /**
+   * Send a message to a specific user on a specific hub.
+   * Uses Azure SignalR REST API user-targeted messaging.
+   */
+  async sendToUser(
+    hub: string,
+    userId: string,
+    event: string,
+    data: Record<string, unknown>,
+  ): Promise<void> {
+    if (!this.endpoint || !this.accessKey) {
+      LOG.debug(`SignalR not configured - skipping sendToUser of '${event}'`);
+      return;
+    }
+
+    const url = `${this.endpoint}/api/v1/hubs/${hub}/users/${encodeURIComponent(userId)}`;
+
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.generateToken(hub)}`,
+        },
+        body: JSON.stringify({
+          target: event,
+          arguments: [data],
+        }),
+      });
+
+      if (!response.ok) {
+        LOG.error(`SignalR sendToUser failed: ${response.status} ${response.statusText}`);
+      }
+    } catch (err) {
+      LOG.error("SignalR sendToUser error:", err);
+    }
+  }
+
+  /**
    * Generate an HS256-signed JWT for Azure SignalR REST API authentication.
    * Token includes audience (hub URL) and expiration (1 hour).
    */
-  private generateToken(): string {
+  private generateToken(hub?: string): string {
     const now = Math.floor(Date.now() / 1000);
-    const hubUrl = `${this.endpoint}/api/v1/hubs/${this.hubName}`;
+    const hubUrl = `${this.endpoint}/api/v1/hubs/${hub || this.hubName}`;
 
     const header = this.base64url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
     const payload = this.base64url(JSON.stringify({ aud: hubUrl, iat: now, exp: now + 3600 }));

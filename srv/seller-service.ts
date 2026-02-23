@@ -17,7 +17,8 @@ import {
 import { getCertifiedFields, overrideCertifiedField } from "./lib/certification";
 import { getCachedResponse, setCachedResponse } from "./lib/api-cache";
 import { logAudit } from "./lib/audit-logger";
-import { calculateVisibilityScore, getFilledFieldsFromListing } from "./lib/visibility-score";
+import { calculateVisibilityScore } from "./lib/visibility-score";
+import type { VisibilityScoreInput } from "@auto/shared";
 import {
   validateMimeType,
   validateFileSize,
@@ -27,6 +28,8 @@ import {
   getNextSortOrder,
   getMaxPhotos,
 } from "./lib/photo-storage";
+import { signalrClient, SIGNALR_HUBS } from "./lib/signalr-client";
+import type { VisibilityScoreResult } from "@auto/shared";
 import {
   validateListingField,
   CERTIFIABLE_FIELDS,
@@ -263,9 +266,28 @@ function buildAdapterCalls(identifier: string, identifierType: string): AdapterC
   ];
 }
 
+/**
+ * Broadcast score update to the seller via SignalR live-score hub.
+ * Non-blocking — errors are logged but don't fail the request.
+ */
+async function broadcastScoreUpdate(userId: string, result: VisibilityScoreResult): Promise<void> {
+  try {
+    await signalrClient.sendToUser(SIGNALR_HUBS.liveScore, userId, "scoreUpdate", {
+      score: result.score,
+      label: result.label,
+      suggestions: result.suggestions,
+      normalizedScore: result.normalizedScore ?? null,
+      normalizationMessage: result.normalizationMessage ?? null,
+    });
+  } catch (err) {
+    LOG.warn("Failed to broadcast score update via SignalR:", err);
+  }
+}
+
 export default class SellerServiceHandler extends cds.ApplicationService {
   async init() {
     this.on("autoFillByPlate", this.handleAutoFill);
+    this.on("recalculateScore", this.handleRecalculateScore);
     this.on("updateListingField", this.handleUpdateListingField);
     this.on("uploadPhoto", this.handleUploadPhoto);
     this.on("reorderPhotos", this.handleReorderPhotos);
@@ -452,6 +474,54 @@ export default class SellerServiceHandler extends cds.ApplicationService {
     };
   };
 
+  private handleRecalculateScore = async (req: cds.Request) => {
+    const { listingId } = req.data as { listingId: string };
+
+    const entities = cds.entities("auto");
+    const Listing = entities["Listing"];
+    const ListingPhoto = entities["ListingPhoto"];
+
+    // Load listing with all data
+    const listing = await cds.run(SELECT.one.from(Listing).where({ ID: listingId }));
+    if (!listing) {
+      return req.error(404, "Listing not found");
+    }
+
+    // Verify ownership
+    const userId = (req.user as { id?: string })?.id;
+    if (!userId || listing.sellerId !== userId) {
+      return req.error(403, "Not authorized to access this listing");
+    }
+
+    // Count photos
+    const photos = await cds.run(SELECT.from(ListingPhoto).where({ listingId }));
+
+    const scoreInput: VisibilityScoreInput = {
+      listing,
+      photoCount: photos.length,
+      hasHistoryReport: false, // Story 3-8 will integrate history report
+    };
+    const result = calculateVisibilityScore(scoreInput);
+
+    // Persist score and label
+    await cds.run(
+      UPDATE(Listing)
+        .set({ visibilityScore: result.score, visibilityLabel: result.label })
+        .where({ ID: listingId }),
+    );
+
+    // Broadcast score update to seller via SignalR
+    await broadcastScoreUpdate(userId, result);
+
+    return {
+      score: result.score,
+      label: result.label,
+      suggestions: JSON.stringify(result.suggestions),
+      normalizedScore: result.normalizedScore ?? null,
+      normalizationMessage: result.normalizationMessage ?? null,
+    };
+  };
+
   private handleUpdateListingField = async (req: cds.Request) => {
     const { listingId, fieldName, value } = req.data as {
       listingId: string;
@@ -536,11 +606,24 @@ export default class SellerServiceHandler extends cds.ApplicationService {
     // current field values, so a fresh read ensures correctness even if concurrent
     // updates occurred. The extra DB round-trip is acceptable for data integrity.
     const updatedListing = await cds.run(SELECT.one.from(Listing).where({ ID: listingId }));
-    const filledFields = getFilledFieldsFromListing(updatedListing);
-    const newScore = calculateVisibilityScore(filledFields);
+    const ListingPhoto = entities["ListingPhoto"];
+    const photos = await cds.run(SELECT.from(ListingPhoto).where({ listingId }));
+    const scoreInput: VisibilityScoreInput = {
+      listing: updatedListing,
+      photoCount: photos.length,
+      hasHistoryReport: false, // Story 3-8 will integrate history report
+    };
+    const scoreResult = calculateVisibilityScore(scoreInput);
 
-    // Update the score
-    await cds.run(UPDATE(Listing).set({ visibilityScore: newScore }).where({ ID: listingId }));
+    // Update score and label
+    await cds.run(
+      UPDATE(Listing)
+        .set({ visibilityScore: scoreResult.score, visibilityLabel: scoreResult.label })
+        .where({ ID: listingId }),
+    );
+
+    // Broadcast score update to seller via SignalR
+    await broadcastScoreUpdate(userId!, scoreResult);
 
     // Determine final status
     if (value === "") {
@@ -551,7 +634,9 @@ export default class SellerServiceHandler extends cds.ApplicationService {
       fieldName,
       value,
       status,
-      visibilityScore: newScore,
+      visibilityScore: scoreResult.score,
+      visibilityLabel: scoreResult.label,
+      suggestions: JSON.stringify(scoreResult.suggestions),
       previousCertifiedValue: previousCertifiedValue || null,
     };
   };
@@ -650,11 +735,21 @@ export default class SellerServiceHandler extends cds.ApplicationService {
       throw err;
     }
 
-    // Recalculate visibility score (photo weight integration in Story 3-5)
+    // Recalculate visibility score with updated photo count
     try {
-      const filledFields = getFilledFieldsFromListing(listing);
-      const score = calculateVisibilityScore(filledFields);
-      await cds.run(UPDATE(Listing).set({ visibilityScore: score }).where({ ID: listingId }));
+      const allPhotos = await cds.run(SELECT.from(ListingPhoto).where({ listingId }));
+      const scoreInput: VisibilityScoreInput = {
+        listing,
+        photoCount: allPhotos.length,
+        hasHistoryReport: false,
+      };
+      const scoreResult = calculateVisibilityScore(scoreInput);
+      await cds.run(
+        UPDATE(Listing)
+          .set({ visibilityScore: scoreResult.score, visibilityLabel: scoreResult.label })
+          .where({ ID: listingId }),
+      );
+      await broadcastScoreUpdate(userId, scoreResult);
     } catch (err) {
       LOG.warn(`Failed to recalculate visibility score after photo upload: ${err}`);
     }
@@ -811,11 +906,20 @@ export default class SellerServiceHandler extends cds.ApplicationService {
       }
     }
 
-    // Recalculate visibility score (photo weight integration in Story 3-5)
+    // Recalculate visibility score with updated photo count
     try {
-      const filledFields = getFilledFieldsFromListing(listing);
-      const score = calculateVisibilityScore(filledFields);
-      await cds.run(UPDATE(Listing).set({ visibilityScore: score }).where({ ID: listingId }));
+      const scoreInput: VisibilityScoreInput = {
+        listing,
+        photoCount: remaining.length,
+        hasHistoryReport: false,
+      };
+      const scoreResult = calculateVisibilityScore(scoreInput);
+      await cds.run(
+        UPDATE(Listing)
+          .set({ visibilityScore: scoreResult.score, visibilityLabel: scoreResult.label })
+          .where({ ID: listingId }),
+      );
+      await broadcastScoreUpdate(userId!, scoreResult);
     } catch (err) {
       LOG.warn(`Failed to recalculate visibility score after photo delete: ${err}`);
     }

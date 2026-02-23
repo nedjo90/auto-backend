@@ -55,6 +55,7 @@ entity Listing : cuid, managed {
   // Status
   status            : String(20) default 'draft';  // draft, published, sold, archived
   visibilityScore   : Integer default 0;
+  visibilityLabel   : String(50) default 'Partiellement documenté';
 
   // Associations
   certifiedFields   : Composition of many CertifiedField on certifiedFields.listingId = $self.ID;
