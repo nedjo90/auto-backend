@@ -14,7 +14,11 @@ import {
   getCritAir,
   getVINTechnical,
 } from "./adapters/factory/adapter-factory";
-import { getCertifiedFields, overrideCertifiedField } from "./lib/certification";
+import {
+  markFieldCertified,
+  getCertifiedFields,
+  overrideCertifiedField,
+} from "./lib/certification";
 import { getCachedResponse, setCachedResponse } from "./lib/api-cache";
 import { logAudit } from "./lib/audit-logger";
 import { calculateVisibilityScore } from "./lib/visibility-score";
@@ -35,6 +39,7 @@ import {
   CERTIFIABLE_FIELDS,
   LISTING_FIELDS,
   PHOTO_ALLOWED_MIME_TYPES,
+  calculateCompletionPercentage,
 } from "@auto/shared";
 
 const LOG = cds.log("seller");
@@ -287,6 +292,7 @@ async function broadcastScoreUpdate(userId: string, result: VisibilityScoreResul
 export default class SellerServiceHandler extends cds.ApplicationService {
   async init() {
     this.on("autoFillByPlate", this.handleAutoFill);
+    this.on("saveDraft", this.handleSaveDraft);
     this.on("recalculateScore", this.handleRecalculateScore);
     this.on("updateListingField", this.handleUpdateListingField);
     this.on("uploadPhoto", this.handleUploadPhoto);
@@ -471,6 +477,176 @@ export default class SellerServiceHandler extends cds.ApplicationService {
     return {
       fields: JSON.stringify(allFields),
       sources: JSON.stringify(allSources),
+    };
+  };
+
+  // ─── Draft Management Handlers (Story 3-6) ──────────────────────────────
+
+  private handleSaveDraft = async (req: cds.Request) => {
+    const {
+      listingId: inputListingId,
+      fields: fieldsJson,
+      certifiedFields: certFieldsJson,
+    } = req.data as {
+      listingId: string | null;
+      fields: string;
+      certifiedFields: string | null;
+    };
+
+    const userId = (req.user as { id?: string })?.id;
+    if (!userId) {
+      return req.error(401, "Authentication required");
+    }
+
+    // Parse fields JSON
+    let fieldData: Record<string, unknown>;
+    try {
+      fieldData = JSON.parse(fieldsJson);
+    } catch {
+      return req.error(400, "Invalid fields JSON");
+    }
+
+    // Whitelist: only allow known listing field names
+    const validFieldNames = new Set(LISTING_FIELDS.map((f) => f.fieldName));
+    const sanitizedFields: Record<string, unknown> = {};
+    const numericFields = [
+      "price",
+      "mileage",
+      "year",
+      "engineCapacityCc",
+      "powerKw",
+      "powerHp",
+      "doors",
+      "seats",
+      "co2GKm",
+      "numberOfDoors",
+      "engineCylinders",
+      "recallCount",
+    ];
+
+    for (const [key, val] of Object.entries(fieldData)) {
+      if (!validFieldNames.has(key)) continue;
+      if (val === "" || val == null) {
+        sanitizedFields[key] = null;
+      } else if (numericFields.includes(key)) {
+        sanitizedFields[key] = Number(val);
+      } else {
+        sanitizedFields[key] = val;
+      }
+    }
+
+    const entities = cds.entities("auto");
+    const Listing = entities["Listing"];
+    const ListingPhoto = entities["ListingPhoto"];
+
+    let finalListingId: string;
+
+    if (inputListingId) {
+      // Update existing draft
+      const listing = await cds.run(SELECT.one.from(Listing).where({ ID: inputListingId }));
+      if (!listing) {
+        return req.error(404, "Listing not found");
+      }
+      if (listing.sellerId !== userId) {
+        return req.error(403, "Not authorized to update this listing");
+      }
+
+      await cds.run(UPDATE(Listing).set(sanitizedFields).where({ ID: inputListingId }));
+      finalListingId = inputListingId;
+    } else {
+      // Create new draft
+      finalListingId = cds.utils.uuid();
+      await cds.run(
+        INSERT.into(Listing).entries({
+          ID: finalListingId,
+          sellerId: userId,
+          status: "draft",
+          ...sanitizedFields,
+        }),
+      );
+    }
+
+    // Persist certified fields if provided
+    if (certFieldsJson) {
+      let certFields: Array<{
+        fieldName: string;
+        fieldValue: string;
+        source: string;
+        sourceTimestamp?: string;
+        isCertified?: boolean;
+      }>;
+      try {
+        certFields = JSON.parse(certFieldsJson);
+      } catch {
+        certFields = [];
+      }
+
+      for (const cf of certFields) {
+        if (cf.fieldName && cf.fieldValue && cf.source) {
+          try {
+            await markFieldCertified(finalListingId, cf.fieldName, cf.fieldValue, cf.source);
+          } catch (err) {
+            LOG.warn(`Failed to persist certified field ${cf.fieldName}:`, err);
+          }
+        }
+      }
+    }
+
+    // Re-fetch listing to calculate scores with persisted data
+    const savedListing = await cds.run(SELECT.one.from(Listing).where({ ID: finalListingId }));
+    const photos = await cds.run(SELECT.from(ListingPhoto).where({ listingId: finalListingId }));
+
+    // Calculate visibility score
+    const scoreInput: VisibilityScoreInput = {
+      listing: savedListing,
+      photoCount: photos.length,
+      hasHistoryReport: false,
+    };
+    const scoreResult = calculateVisibilityScore(scoreInput);
+
+    // Calculate completion percentage
+    const completionPercentage = calculateCompletionPercentage(savedListing, photos.length);
+
+    // Persist calculated values
+    await cds.run(
+      UPDATE(Listing)
+        .set({
+          visibilityScore: scoreResult.score,
+          visibilityLabel: scoreResult.label,
+          completionPercentage,
+        })
+        .where({ ID: finalListingId }),
+    );
+
+    // Broadcast score update
+    await broadcastScoreUpdate(userId, scoreResult);
+
+    // Audit log
+    try {
+      await logAudit({
+        userId,
+        action: inputListingId ? "listing.draft.update" : "listing.draft.create",
+        resource: "Listing",
+        details: JSON.stringify({
+          listingId: finalListingId,
+          fieldCount: Object.keys(sanitizedFields).length,
+          completionPercentage,
+        }),
+      });
+    } catch {
+      LOG.warn("Failed to log audit for saveDraft");
+    }
+
+    LOG.info(
+      `Draft ${inputListingId ? "updated" : "created"}: ${finalListingId} (${completionPercentage}% complete)`,
+    );
+
+    return {
+      listingId: finalListingId,
+      success: true,
+      completionPercentage,
+      visibilityScore: scoreResult.score,
+      visibilityLabel: scoreResult.label,
     };
   };
 

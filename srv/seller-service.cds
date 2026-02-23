@@ -70,6 +70,19 @@ service SellerService {
     normalizationMessage : String(200);
   };
 
+  /** Save listing as draft (create new or update existing) */
+  action saveDraft(
+    listingId       : String(36),           // null for new draft
+    fields          : LargeString not null,  // JSON object: {make: "Renault", price: 15000, ...}
+    certifiedFields : LargeString           // JSON array: [{fieldName, fieldValue, source, sourceTimestamp, isCertified}]
+  ) returns {
+    listingId            : String(36);
+    success              : Boolean;
+    completionPercentage : Integer;
+    visibilityScore      : Integer;
+    visibilityLabel      : String(50);
+  };
+
   /** Update a single listing field and recalculate visibility score */
   action updateListingField(
     listingId : String(36) not null,

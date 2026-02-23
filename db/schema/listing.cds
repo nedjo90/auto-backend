@@ -53,9 +53,10 @@ entity Listing : cuid, managed {
   plantCountry      : String(100);
 
   // Status
-  status            : String(20) default 'draft';  // draft, published, sold, archived
-  visibilityScore   : Integer default 0;
-  visibilityLabel   : String(50) default 'Partiellement documenté';
+  status                : String(20) default 'draft';  // draft, published, sold, archived
+  visibilityScore       : Integer default 0;
+  visibilityLabel       : String(50) default 'Partiellement documenté';
+  completionPercentage  : Integer default 0;
 
   // Associations
   certifiedFields   : Composition of many CertifiedField on certifiedFields.listingId = $self.ID;
