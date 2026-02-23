@@ -10,6 +10,7 @@ jest.mock("@sap/cds", () => {
     default: {
       entities: jest.fn(() => ({
         CertifiedField: "CertifiedField",
+        CertifiedFieldHistory: "CertifiedFieldHistory",
       })),
       run: (...args: any[]) => mockRun(...args),
       log: jest.fn(() => mockLog),
@@ -45,6 +46,7 @@ const {
   markFieldCertified,
   getCertifiedFields,
   isCertified,
+  overrideCertifiedField,
 } = require("../../../srv/lib/certification");
 
 describe("certification", () => {
@@ -197,6 +199,112 @@ describe("certification", () => {
       await expect(isCertified("listing-1", "make")).rejects.toThrow(
         "CertifiedField entity not found",
       );
+    });
+  });
+
+  describe("overrideCertifiedField", () => {
+    it("should override a certified field and create history record", async () => {
+      const existingCertified = {
+        ID: "cert-1",
+        listingId: "listing-1",
+        fieldName: "mileage",
+        fieldValue: "50000",
+        source: "SIV",
+        isCertified: true,
+      };
+
+      // SELECT.one finds existing certified field
+      mockRun.mockResolvedValueOnce(existingCertified);
+      // UPDATE marks original as overridden
+      mockRun.mockResolvedValueOnce(undefined);
+      // INSERT new seller_declared record
+      mockRun.mockResolvedValueOnce(undefined);
+      // INSERT history record
+      mockRun.mockResolvedValueOnce(undefined);
+
+      const result = await overrideCertifiedField("listing-1", "mileage", "55000", "seller-1");
+
+      expect(result.previousValue).toBe("50000");
+      expect(result.previousSource).toBe("SIV");
+      expect(result.newRecord).toMatchObject({
+        listingId: "listing-1",
+        fieldName: "mileage",
+        fieldValue: "55000",
+        source: "seller_declared",
+        isCertified: false,
+        isOverridden: false,
+      });
+      // 4 DB calls: SELECT, UPDATE, INSERT cert, INSERT history
+      expect(mockRun).toHaveBeenCalledTimes(4);
+    });
+
+    it("should preserve the original certified value in history", async () => {
+      const existingCertified = {
+        ID: "cert-2",
+        listingId: "listing-2",
+        fieldName: "color",
+        fieldValue: "rouge",
+        source: "ADEME",
+        isCertified: true,
+      };
+
+      mockRun.mockResolvedValueOnce(existingCertified);
+      mockRun.mockResolvedValueOnce(undefined);
+      mockRun.mockResolvedValueOnce(undefined);
+      mockRun.mockResolvedValueOnce(undefined);
+
+      const result = await overrideCertifiedField("listing-2", "color", "bleu", "seller-2");
+
+      expect(result.previousValue).toBe("rouge");
+      expect(result.previousSource).toBe("ADEME");
+      expect(result.newRecord.fieldValue).toBe("bleu");
+    });
+
+    it("should throw when no certified field exists for override", async () => {
+      mockRun.mockResolvedValueOnce(null);
+
+      await expect(
+        overrideCertifiedField("listing-x", "unknown", "val", "seller-1"),
+      ).rejects.toThrow("No certified field found for unknown on listing listing-x");
+    });
+
+    it("should throw if CertifiedField entity is not found", async () => {
+      const cds = require("@sap/cds").default;
+      cds.entities.mockReturnValueOnce({});
+
+      await expect(overrideCertifiedField("listing-1", "make", "val", "seller-1")).rejects.toThrow(
+        "CertifiedField entity not found",
+      );
+    });
+
+    it("should throw if CertifiedFieldHistory entity is not found", async () => {
+      const cds = require("@sap/cds").default;
+      cds.entities.mockReturnValueOnce({ CertifiedField: "CertifiedField" });
+
+      await expect(overrideCertifiedField("listing-1", "make", "val", "seller-1")).rejects.toThrow(
+        "CertifiedFieldHistory entity not found",
+      );
+    });
+
+    it("should set source as seller_declared for overridden field", async () => {
+      const existingCertified = {
+        ID: "cert-3",
+        listingId: "listing-3",
+        fieldName: "fuelType",
+        fieldValue: "diesel",
+        source: "SIV",
+        isCertified: true,
+      };
+
+      mockRun.mockResolvedValueOnce(existingCertified);
+      mockRun.mockResolvedValueOnce(undefined);
+      mockRun.mockResolvedValueOnce(undefined);
+      mockRun.mockResolvedValueOnce(undefined);
+
+      const result = await overrideCertifiedField("listing-3", "fuelType", "essence", "seller-3");
+
+      expect(result.newRecord.source).toBe("seller_declared");
+      expect(result.newRecord.isCertified).toBe(false);
     });
   });
 });

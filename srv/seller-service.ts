@@ -14,9 +14,16 @@ import {
   getCritAir,
   getVINTechnical,
 } from "./adapters/factory/adapter-factory";
-import { markFieldCertified } from "./lib/certification";
+import {
+  markFieldCertified,
+  getCertifiedFields,
+  overrideCertifiedField,
+} from "./lib/certification";
 import { getCachedResponse, setCachedResponse } from "./lib/api-cache";
 import { logAudit } from "./lib/audit-logger";
+import { calculateVisibilityScore, getFilledFieldsFromListing } from "./lib/visibility-score";
+import { validateListingField } from "@auto/shared";
+import { CERTIFIABLE_FIELDS } from "@auto/shared";
 
 const LOG = cds.log("seller");
 
@@ -251,6 +258,7 @@ function buildAdapterCalls(identifier: string, identifierType: string): AdapterC
 export default class SellerServiceHandler extends cds.ApplicationService {
   async init() {
     this.on("autoFillByPlate", this.handleAutoFill);
+    this.on("updateListingField", this.handleUpdateListingField);
     await super.init();
   }
 
@@ -430,6 +438,93 @@ export default class SellerServiceHandler extends cds.ApplicationService {
     return {
       fields: JSON.stringify(allFields),
       sources: JSON.stringify(allSources),
+    };
+  };
+
+  private handleUpdateListingField = async (req: cds.Request) => {
+    const { listingId, fieldName, value } = req.data as {
+      listingId: string;
+      fieldName: string;
+      value: string;
+    };
+
+    const entities = cds.entities("auto");
+    const Listing = entities["Listing"];
+
+    // Validate field value
+    const validationError = validateListingField(fieldName, value);
+    if (validationError) {
+      return req.error(400, validationError);
+    }
+
+    // Get the listing
+    const listing = await cds.run(SELECT.one.from(Listing).where({ ID: listingId }));
+    if (!listing) {
+      return req.error(404, "Listing not found");
+    }
+
+    let previousCertifiedValue: string | undefined;
+    let status: string = "declared";
+
+    // Check if this field is certifiable and currently certified
+    if (CERTIFIABLE_FIELDS.includes(fieldName)) {
+      const certifiedFields = await getCertifiedFields(listingId);
+      const certField = certifiedFields.find((f) => f.fieldName === fieldName && f.isCertified);
+
+      if (certField) {
+        // Override the certified field
+        const sellerId = (req.user as { id?: string })?.id || "unknown";
+        const overrideResult = await overrideCertifiedField(listingId, fieldName, value, sellerId);
+        previousCertifiedValue = overrideResult.previousValue;
+        status = "declared";
+      }
+    }
+
+    // Determine CDS field value based on type
+    const updateData: Record<string, unknown> = {};
+    const numericFields = [
+      "price",
+      "mileage",
+      "year",
+      "engineCapacityCc",
+      "powerKw",
+      "powerHp",
+      "doors",
+      "seats",
+      "co2GKm",
+      "numberOfDoors",
+      "engineCylinders",
+      "recallCount",
+    ];
+
+    if (numericFields.includes(fieldName)) {
+      updateData[fieldName] = value === "" ? null : Number(value);
+    } else {
+      updateData[fieldName] = value === "" ? null : value;
+    }
+
+    // Update the listing field
+    await cds.run(UPDATE(Listing).set(updateData).where({ ID: listingId }));
+
+    // Recalculate visibility score
+    const updatedListing = await cds.run(SELECT.one.from(Listing).where({ ID: listingId }));
+    const filledFields = getFilledFieldsFromListing(updatedListing);
+    const newScore = calculateVisibilityScore(filledFields);
+
+    // Update the score
+    await cds.run(UPDATE(Listing).set({ visibilityScore: newScore }).where({ ID: listingId }));
+
+    // Determine final status
+    if (value === "") {
+      status = "empty";
+    }
+
+    return {
+      fieldName,
+      value,
+      status,
+      visibilityScore: newScore,
+      previousCertifiedValue: previousCertifiedValue || null,
     };
   };
 }
