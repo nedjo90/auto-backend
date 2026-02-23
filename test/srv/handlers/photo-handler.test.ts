@@ -59,8 +59,20 @@ jest.mock("../../../srv/lib/audit-logger", () => ({
 }));
 
 jest.mock("../../../srv/lib/visibility-score", () => ({
-  calculateVisibilityScore: jest.fn(() => 50),
+  calculateVisibilityScore: jest.fn(() => ({
+    score: 50,
+    label: "Bien documenté",
+    suggestions: [],
+  })),
   getFilledFieldsFromListing: jest.fn(() => ({})),
+}));
+
+jest.mock("../../../srv/lib/signalr-client", () => ({
+  signalrClient: {
+    sendToUser: jest.fn().mockResolvedValue(undefined),
+    isConfigured: jest.fn(() => false),
+  },
+  SIGNALR_HUBS: { admin: "admin", liveScore: "live-score" },
 }));
 
 jest.mock("@auto/shared", () => ({

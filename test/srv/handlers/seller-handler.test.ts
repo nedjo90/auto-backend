@@ -16,6 +16,7 @@ jest.mock("@sap/cds", () => {
         ApiCachedData: "ApiCachedData",
         AuditTrailEntry: "AuditTrailEntry",
         Listing: "Listing",
+        ListingPhoto: "ListingPhoto",
       })),
       run: (...args: any[]) => mockRun(...args),
       log: jest.fn(() => mockLog),
@@ -89,8 +90,18 @@ jest.mock("../../../srv/lib/audit-logger", () => ({
   logAudit: (...args: any[]) => mockLogAudit(...args),
 }));
 
-const mockCalculateVisibilityScore = jest.fn().mockReturnValue(75);
-const mockGetFilledFieldsFromListing = jest.fn().mockReturnValue(["make", "model"]);
+jest.mock("../../../srv/lib/signalr-client", () => ({
+  signalrClient: {
+    sendToUser: jest.fn().mockResolvedValue(undefined),
+    isConfigured: jest.fn(() => false),
+  },
+  SIGNALR_HUBS: { admin: "admin", liveScore: "live-score" },
+}));
+
+const mockCalculateVisibilityScore = jest
+  .fn()
+  .mockReturnValue({ score: 75, label: "Très documenté", suggestions: [] });
+const mockGetFilledFieldsFromListing = jest.fn().mockReturnValue({ make: true, model: true });
 jest.mock("../../../srv/lib/visibility-score", () => ({
   calculateVisibilityScore: (...args: any[]) => mockCalculateVisibilityScore(...args),
   getFilledFieldsFromListing: (...args: any[]) => mockGetFilledFieldsFromListing(...args),
@@ -598,8 +609,12 @@ describe("SellerService - updateListingField", () => {
       previousSource: "SIV",
       newRecord: {},
     });
-    mockCalculateVisibilityScore.mockReturnValue(75);
-    mockGetFilledFieldsFromListing.mockReturnValue(["make", "model"]);
+    mockCalculateVisibilityScore.mockReturnValue({
+      score: 75,
+      label: "Très documenté",
+      suggestions: [],
+    });
+    mockGetFilledFieldsFromListing.mockReturnValue({ make: true, model: true });
     const { validateListingField } = require("@auto/shared");
     validateListingField.mockReturnValue(null);
   });
@@ -633,6 +648,8 @@ describe("SellerService - updateListingField", () => {
     mockRun.mockResolvedValueOnce(undefined);
     // SELECT updated listing
     mockRun.mockResolvedValueOnce({ ID: "listing-1", make: "Renault" });
+    // SELECT photos
+    mockRun.mockResolvedValueOnce([]);
     // UPDATE visibility score
     mockRun.mockResolvedValueOnce(undefined);
 
@@ -659,6 +676,8 @@ describe("SellerService - updateListingField", () => {
     mockRun.mockResolvedValueOnce(undefined);
     // SELECT updated listing
     mockRun.mockResolvedValueOnce({ ID: "listing-1", make: "Peugeot" });
+    // SELECT photos
+    mockRun.mockResolvedValueOnce([]);
     // UPDATE visibility score
     mockRun.mockResolvedValueOnce(undefined);
 
@@ -685,6 +704,8 @@ describe("SellerService - updateListingField", () => {
     mockRun.mockResolvedValueOnce(undefined);
     // SELECT updated listing
     mockRun.mockResolvedValueOnce({ ID: "listing-1" });
+    // SELECT photos
+    mockRun.mockResolvedValueOnce([]);
     // UPDATE visibility score
     mockRun.mockResolvedValueOnce(undefined);
 

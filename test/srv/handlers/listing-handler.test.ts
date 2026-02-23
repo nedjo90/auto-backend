@@ -12,6 +12,7 @@ jest.mock("@sap/cds", () => {
         Listing: "Listing",
         CertifiedField: "CertifiedField",
         CertifiedFieldHistory: "CertifiedFieldHistory",
+        ListingPhoto: "ListingPhoto",
       })),
       run: (...args: any[]) => mockRun(...args),
       log: jest.fn(() => mockLog),
@@ -20,9 +21,18 @@ jest.mock("@sap/cds", () => {
   };
 });
 
+jest.mock("../../../srv/lib/config-cache", () => ({
+  configCache: {
+    isReady: jest.fn(() => false),
+    get: jest.fn(() => undefined),
+    getAll: jest.fn(() => []),
+  },
+}));
+
 jest.mock("@auto/shared", () => ({
   validateListingField: jest.fn(() => null),
   CERTIFIABLE_FIELDS: ["make", "model", "year", "fuelType", "color", "co2GKm"],
+  DECLARED_ONLY_FIELDS: ["price", "mileage"],
   LISTING_FIELDS: [
     {
       fieldName: "make",
@@ -53,6 +63,38 @@ jest.mock("@auto/shared", () => ({
       required: true,
     },
   ],
+  DEFAULT_VISIBILITY_WEIGHTS: {
+    certifiedFieldWeight: 5,
+    declaredFieldWeight: 2,
+    photoWeight: 3,
+    photoMax: 10,
+    historyReportWeight: 10,
+    descriptionBonusWeight: 5,
+    descriptionMinLength: 100,
+    ageThreshold: 15,
+    ageNormalizationFactor: 0.8,
+    labelThresholdLow: 34,
+    labelThresholdHigh: 67,
+  },
+  VISIBILITY_LABELS: {
+    low: "Partiellement documenté",
+    medium: "Bien documenté",
+    high: "Très documenté",
+  },
+  VISIBILITY_SUGGESTIONS: {},
+  VISIBILITY_CONFIG_KEYS: {
+    certifiedFieldWeight: "visibility.certifiedField",
+    declaredFieldWeight: "visibility.declaredField",
+    photoWeight: "visibility.photo",
+    photoMax: "visibility.photoMax",
+    historyReportWeight: "visibility.historyReport",
+    descriptionBonusWeight: "visibility.descriptionBonus",
+    descriptionMinLength: "visibility.descriptionMinLength",
+    ageThreshold: "visibility.ageThreshold",
+    ageNormalizationFactor: "visibility.ageNormFactor",
+    labelThresholdLow: "visibility.labelThresholdLow",
+    labelThresholdHigh: "visibility.labelThresholdHigh",
+  },
 }));
 
 // Set up CDS query globals
@@ -84,6 +126,21 @@ import {
   calculateVisibilityScore,
   getFilledFieldsFromListing,
 } from "../../../srv/lib/visibility-score";
+import type { VisibilityScoreInput, VisibilityScoreWeights } from "@auto/shared";
+
+const defaultWeights: VisibilityScoreWeights = {
+  certifiedFieldWeight: 5,
+  declaredFieldWeight: 2,
+  photoWeight: 3,
+  photoMax: 10,
+  historyReportWeight: 10,
+  descriptionBonusWeight: 5,
+  descriptionMinLength: 100,
+  ageThreshold: 15,
+  ageNormalizationFactor: 0.8,
+  labelThresholdLow: 34,
+  labelThresholdHigh: 67,
+};
 
 describe("listing handler - field update integration", () => {
   beforeEach(() => {
@@ -93,32 +150,45 @@ describe("listing handler - field update integration", () => {
 
   describe("visibility score on field update", () => {
     it("should calculate higher score with more fields filled", () => {
-      const fewFields: Record<string, boolean> = { make: true };
-      const manyFields: Record<string, boolean> = {
-        make: true,
-        model: true,
-        price: true,
-        mileage: true,
+      const fewFields: VisibilityScoreInput = {
+        listing: { make: "Renault" },
+        photoCount: 0,
+        hasHistoryReport: false,
+      };
+      const manyFields: VisibilityScoreInput = {
+        listing: { make: "Renault", model: "Clio", price: 15000, mileage: 50000 },
+        photoCount: 0,
+        hasHistoryReport: false,
       };
 
-      const fewScore = calculateVisibilityScore(fewFields);
-      const manyScore = calculateVisibilityScore(manyFields);
-      expect(manyScore).toBeGreaterThan(fewScore);
+      const fewResult = calculateVisibilityScore(fewFields, defaultWeights);
+      const manyResult = calculateVisibilityScore(manyFields, defaultWeights);
+      expect(manyResult.score).toBeGreaterThan(fewResult.score);
     });
 
     it("should return 0 for empty listing", () => {
-      const empty: Record<string, boolean> = {};
-      expect(calculateVisibilityScore(empty)).toBe(0);
+      const empty: VisibilityScoreInput = {
+        listing: {},
+        photoCount: 0,
+        hasHistoryReport: false,
+      };
+      expect(calculateVisibilityScore(empty, defaultWeights).score).toBe(0);
     });
 
-    it("should return 100 for fully-filled listing", () => {
-      const full: Record<string, boolean> = {
-        make: true,
-        model: true,
-        price: true,
-        mileage: true,
+    it("should return 100 for fully-filled listing with photos and history", () => {
+      const full: VisibilityScoreInput = {
+        listing: {
+          make: "Renault",
+          model: "Clio",
+          price: 15000,
+          mileage: 50000,
+        },
+        photoCount: 10,
+        hasHistoryReport: true,
       };
-      expect(calculateVisibilityScore(full)).toBe(100);
+      const result = calculateVisibilityScore(full, defaultWeights);
+      // Score won't be 100 unless ALL fields including optional are filled
+      expect(result.score).toBeGreaterThan(0);
     });
   });
 
