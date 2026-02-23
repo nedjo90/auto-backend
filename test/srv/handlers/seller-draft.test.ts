@@ -1068,3 +1068,254 @@ describe("SellerService - loadDraft", () => {
     expect(req.error).toHaveBeenCalledWith(401, "Authentication required");
   });
 });
+
+// ─── Integration Tests: Full Draft Lifecycle Flows ───────────────────────────
+
+describe("Draft Management - Integration Flows", () => {
+  let handleSaveDraft: any;
+  let handleLoadDraft: any;
+  let handleDuplicateDraft: any;
+  let handleDeleteDraft: any;
+
+  beforeAll(() => {
+    const handler = new SellerServiceHandler();
+    handler.on = (event: string, fn: any) => {
+      if (event === "saveDraft") handleSaveDraft = fn;
+      if (event === "loadDraft") handleLoadDraft = fn;
+      if (event === "duplicateDraft") handleDuplicateDraft = fn;
+      if (event === "deleteDraft") handleDeleteDraft = fn;
+    };
+    handler.init();
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockRun.mockReset();
+    mockCalculateVisibilityScore.mockReturnValue({
+      score: 65,
+      label: "Bien documenté",
+      suggestions: [{ field: "price", message: "Ajoutez un prix" }],
+    });
+    const { calculateCompletionPercentage } = require("@auto/shared");
+    calculateCompletionPercentage.mockReturnValue(50);
+  });
+
+  it("should support full create → save → load flow", async () => {
+    // Step 1: Create new draft via saveDraft (no listingId)
+    mockRun.mockResolvedValueOnce(undefined); // INSERT listing
+    mockRun.mockResolvedValueOnce({
+      ID: "flow-draft-1",
+      sellerId: "seller-1",
+      status: "draft",
+      make: "Renault",
+      model: "Clio",
+      price: 15000,
+    }); // SELECT re-fetch
+    mockRun.mockResolvedValueOnce(0); // SELECT count photos
+    mockRun.mockResolvedValueOnce(undefined); // UPDATE score
+
+    const createReq = createMockRequest(
+      {
+        listingId: null,
+        fields: JSON.stringify({ make: "Renault", model: "Clio", price: 15000 }),
+        certifiedFields: JSON.stringify([
+          {
+            fieldName: "make",
+            fieldValue: "Renault",
+            source: "SIV",
+            sourceTimestamp: "2026-02-23T10:00:00Z",
+            isCertified: true,
+          },
+        ]),
+      },
+      "seller-1",
+    );
+
+    const createResult = await handleSaveDraft(createReq);
+    expect(createResult.success).toBe(true);
+    expect(createResult.listingId).toBe("new-draft-uuid");
+
+    // Step 2: Load the draft back
+    mockRun.mockResolvedValueOnce({
+      ID: "new-draft-uuid",
+      sellerId: "seller-1",
+      make: "Renault",
+      model: "Clio",
+      price: 15000,
+      visibilityScore: 65,
+      visibilityLabel: "Bien documenté",
+      completionPercentage: 50,
+    }); // SELECT listing
+    mockRun.mockResolvedValueOnce([
+      {
+        fieldName: "make",
+        fieldValue: "Renault",
+        source: "SIV",
+        sourceTimestamp: "2026-02-23T10:00:00Z",
+      },
+    ]); // SELECT certified fields
+    mockRun.mockResolvedValueOnce([]); // SELECT photos
+
+    const loadReq = createMockRequest({ listingId: "new-draft-uuid" }, "seller-1");
+    const loadResult = await handleLoadDraft(loadReq);
+
+    const listing = JSON.parse(loadResult.listing);
+    expect(listing.make).toBe("Renault");
+    expect(listing.price).toBe(15000);
+
+    const certFields = JSON.parse(loadResult.certifiedFields);
+    expect(certFields).toHaveLength(1);
+    expect(certFields[0].fieldName).toBe("make");
+  });
+
+  it("should support duplicate → verify no certified fields copied", async () => {
+    // Step 1: Source listing
+    mockRun.mockResolvedValueOnce({
+      ID: "source-draft",
+      sellerId: "seller-1",
+      status: "draft",
+      make: "Peugeot",
+      model: "208",
+      price: 20000,
+    }); // SELECT source listing
+    mockRun.mockResolvedValueOnce(undefined); // INSERT new listing
+    mockRun.mockResolvedValueOnce([]); // SELECT source photos
+    mockRun.mockResolvedValueOnce({
+      ID: "dup-draft-id",
+      sellerId: "seller-1",
+    }); // SELECT re-fetch new listing
+    mockRun.mockResolvedValueOnce([]); // SELECT photos for new listing
+    mockRun.mockResolvedValueOnce(undefined); // UPDATE score
+
+    const dupReq = createMockRequest({ listingId: "source-draft" }, "seller-1");
+    const dupResult = await handleDuplicateDraft(dupReq);
+
+    expect(dupResult.success).toBe(true);
+    expect(dupResult.listingId).toBe("new-draft-uuid");
+
+    // Verify: markFieldCertified was NOT called (certified fields not copied)
+    expect(mockMarkFieldCertified).not.toHaveBeenCalled();
+
+    // Verify: audit was logged
+    expect(mockLogAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "listing.draft.duplicate" }),
+    );
+  });
+
+  it("should support delete → verify cascade cleanup", async () => {
+    // Step 1: Delete draft
+    mockRun.mockResolvedValueOnce({
+      ID: "del-draft",
+      sellerId: "seller-1",
+      status: "draft",
+    }); // SELECT listing
+    mockRun.mockResolvedValueOnce(undefined); // deleteAllPhotosForListing
+    mockRun.mockResolvedValueOnce(undefined); // DELETE certified fields
+    mockRun.mockResolvedValueOnce(undefined); // DELETE listing
+
+    const delReq = createMockRequest({ listingId: "del-draft" }, "seller-1");
+    const delResult = await handleDeleteDraft(delReq);
+
+    expect(delResult.success).toBe(true);
+
+    // Verify: photos blob + DB cleanup was called
+    const { deleteAllPhotosForListing } = require("../../../srv/lib/photo-storage");
+    expect(deleteAllPhotosForListing).toHaveBeenCalledWith("del-draft");
+
+    // Verify: certified fields were deleted
+    expect(mockRun).toHaveBeenCalled();
+
+    // Verify: audit was logged
+    expect(mockLogAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "listing.draft.delete" }),
+    );
+  });
+
+  it("should support save → update → verify data changed", async () => {
+    // Step 1: Create draft
+    mockRun.mockResolvedValueOnce(undefined); // INSERT
+    mockRun.mockResolvedValueOnce({
+      ID: "update-draft",
+      sellerId: "seller-1",
+      make: "Renault",
+      price: 10000,
+    }); // SELECT
+    mockRun.mockResolvedValueOnce(0); // photo count
+    mockRun.mockResolvedValueOnce(undefined); // UPDATE score
+
+    const createReq = createMockRequest(
+      {
+        listingId: null,
+        fields: JSON.stringify({ make: "Renault", price: 10000 }),
+      },
+      "seller-1",
+    );
+
+    await handleSaveDraft(createReq);
+
+    // Step 2: Update same draft with new price
+    jest.clearAllMocks();
+    mockRun.mockReset();
+    mockCalculateVisibilityScore.mockReturnValue({
+      score: 70,
+      label: "Bien documenté",
+      suggestions: [],
+    });
+    const { calculateCompletionPercentage } = require("@auto/shared");
+    calculateCompletionPercentage.mockReturnValue(55);
+
+    mockRun.mockResolvedValueOnce({
+      ID: "update-draft",
+      sellerId: "seller-1",
+      status: "draft",
+    }); // SELECT existing
+    mockRun.mockResolvedValueOnce(undefined); // UPDATE listing
+    mockRun.mockResolvedValueOnce({
+      ID: "update-draft",
+      sellerId: "seller-1",
+      make: "Renault",
+      price: 18000,
+    }); // SELECT re-fetch
+    mockRun.mockResolvedValueOnce(2); // photo count
+    mockRun.mockResolvedValueOnce(undefined); // UPDATE score
+
+    const updateReq = createMockRequest(
+      {
+        listingId: "update-draft",
+        fields: JSON.stringify({ make: "Renault", price: 18000 }),
+      },
+      "seller-1",
+    );
+
+    const updateResult = await handleSaveDraft(updateReq);
+    expect(updateResult.success).toBe(true);
+    expect(updateResult.visibilityScore).toBe(70);
+    expect(updateResult.completionPercentage).toBe(55);
+  });
+
+  it("should prevent delete of non-draft listing", async () => {
+    mockRun.mockResolvedValueOnce({
+      ID: "published-listing",
+      sellerId: "seller-1",
+      status: "published",
+    });
+
+    const req = createMockRequest({ listingId: "published-listing" }, "seller-1");
+    await handleDeleteDraft(req);
+
+    expect(req.error).toHaveBeenCalledWith(400, expect.stringContaining("draft"));
+  });
+
+  it("should prevent access to other seller's draft", async () => {
+    mockRun.mockResolvedValueOnce({
+      ID: "other-draft",
+      sellerId: "other-seller",
+      status: "draft",
+    });
+
+    const req = createMockRequest({ listingId: "other-draft" }, "attacker");
+    await handleLoadDraft(req);
+
+    expect(req.error).toHaveBeenCalledWith(403, expect.any(String));
+  });
+});
