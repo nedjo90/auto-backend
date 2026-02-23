@@ -16,7 +16,8 @@ describeIf("Live API Integration Tests", () => {
 
   describe("AdemeEmissionAdapter (live)", () => {
     it("should fetch emission data for a known French vehicle", async () => {
-      const { AdemeEmissionAdapter } = await import("../../../srv/adapters/ademe-emission.adapter");
+      const { AdemeEmissionAdapter } =
+        await import("../../../srv/adapters/ademe-emission.adapter.js");
       const adapter = new AdemeEmissionAdapter();
 
       const result = await adapter.getEmissions({
@@ -36,7 +37,7 @@ describeIf("Live API Integration Tests", () => {
   describe("RappelConsoRecallAdapter (live)", () => {
     it("should fetch recall data for automobiles", async () => {
       const { RappelConsoRecallAdapter } =
-        await import("../../../srv/adapters/rappelconso-recall.adapter");
+        await import("../../../srv/adapters/rappelconso-recall.adapter.js");
       const adapter = new RappelConsoRecallAdapter();
 
       const result = await adapter.getRecalls({
@@ -54,7 +55,7 @@ describeIf("Live API Integration Tests", () => {
 
   describe("NhtsaVINAdapter (live)", () => {
     it("should decode a known VIN from NHTSA vPIC API", async () => {
-      const { NhtsaVINAdapter } = await import("../../../srv/adapters/nhtsa-vin.adapter");
+      const { NhtsaVINAdapter } = await import("../../../srv/adapters/nhtsa-vin.adapter.js");
       const adapter = new NhtsaVINAdapter();
 
       // Public test VIN for a 2021 Toyota Camry
@@ -71,7 +72,7 @@ describeIf("Live API Integration Tests", () => {
   describe("LocalCritAirCalculator (no network, pure computation)", () => {
     it("should classify a French vehicle correctly", async () => {
       const { LocalCritAirCalculator } =
-        await import("../../../srv/adapters/local-critair.adapter");
+        await import("../../../srv/adapters/local-critair.adapter.js");
       const adapter = new LocalCritAirCalculator();
 
       const result = await adapter.calculate({

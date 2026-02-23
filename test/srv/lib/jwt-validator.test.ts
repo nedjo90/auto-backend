@@ -10,15 +10,11 @@ describe("jwt-validator", () => {
     });
 
     it("should reject a malformed token", async () => {
-      await expect(validateToken("not.a.jwt")).rejects.toThrow(
-        JwtValidationError,
-      );
+      await expect(validateToken("not.a.jwt")).rejects.toThrow(JwtValidationError);
     });
 
     it("should reject null/undefined token", async () => {
-      await expect(validateToken(null as unknown as string)).rejects.toThrow(
-        JwtValidationError,
-      );
+      await expect(validateToken(null as unknown as string)).rejects.toThrow(JwtValidationError);
     });
 
     it("should export JwtValidationError class", () => {

@@ -10,12 +10,8 @@ export class AzureAdB2cAdapter implements IIdentityProviderAdapter {
   private client: Client;
   private tenantName: string;
 
-  constructor(
-    client?: Client,
-    tenantName?: string,
-  ) {
-    this.tenantName =
-      tenantName || process.env.AZURE_AD_B2C_TENANT_NAME || "";
+  constructor(client?: Client, tenantName?: string) {
+    this.tenantName = tenantName || process.env.AZURE_AD_B2C_TENANT_NAME || "";
 
     if (client) {
       this.client = client;
@@ -24,15 +20,10 @@ export class AzureAdB2cAdapter implements IIdentityProviderAdapter {
       const clientId = process.env.AZURE_AD_B2C_CLIENT_ID || "";
       const clientSecret = process.env.AZURE_AD_B2C_CLIENT_SECRET || "";
 
-      const credential = new ClientSecretCredential(
-        tenantId,
-        clientId,
-        clientSecret,
-      );
-      const authProvider = new TokenCredentialAuthenticationProvider(
-        credential,
-        { scopes: ["https://graph.microsoft.com/.default"] },
-      );
+      const credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
+      const authProvider = new TokenCredentialAuthenticationProvider(credential, {
+        scopes: ["https://graph.microsoft.com/.default"],
+      });
       this.client = Client.initWithMiddleware({ authProvider });
     }
   }
@@ -65,10 +56,7 @@ export class AzureAdB2cAdapter implements IIdentityProviderAdapter {
     });
   }
 
-  async updateUser(
-    externalId: string,
-    userData: Record<string, unknown>,
-  ): Promise<void> {
+  async updateUser(externalId: string, userData: Record<string, unknown>): Promise<void> {
     await this.client.api(`/users/${externalId}`).update(userData);
   }
 }

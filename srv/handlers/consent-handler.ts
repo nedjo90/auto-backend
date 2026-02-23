@@ -20,9 +20,7 @@ export default class ConsentServiceHandler extends cds.ApplicationService {
   private getActiveConsentTypes = async () => {
     const { ConfigConsentType } = cds.entities("auto");
     return cds.run(
-      SELECT.from(ConfigConsentType)
-        .where({ isActive: true })
-        .orderBy("displayOrder asc"),
+      SELECT.from(ConfigConsentType).where({ isActive: true }).orderBy("displayOrder asc"),
     );
   };
 
@@ -111,11 +109,7 @@ export default class ConsentServiceHandler extends cds.ApplicationService {
     const { userId } = req.data;
     const { UserConsent } = cds.entities("auto");
 
-    return cds.run(
-      SELECT.from(UserConsent)
-        .where({ user_ID: userId })
-        .orderBy("timestamp desc"),
-    );
+    return cds.run(SELECT.from(UserConsent).where({ user_ID: userId }).orderBy("timestamp desc"));
   };
 
   private handleGetPendingConsents = async (req: cds.Request) => {
@@ -123,15 +117,11 @@ export default class ConsentServiceHandler extends cds.ApplicationService {
     const { ConfigConsentType, UserConsent } = cds.entities("auto");
 
     // Get all active consent types
-    const activeTypes = await cds.run(
-      SELECT.from(ConfigConsentType).where({ isActive: true }),
-    );
+    const activeTypes = await cds.run(SELECT.from(ConfigConsentType).where({ isActive: true }));
 
     // Get user's latest consent per type
     const userConsents = await cds.run(
-      SELECT.from(UserConsent)
-        .where({ user_ID: userId })
-        .orderBy("timestamp desc"),
+      SELECT.from(UserConsent).where({ user_ID: userId }).orderBy("timestamp desc"),
     );
 
     // Build map of latest consent per type
