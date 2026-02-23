@@ -74,7 +74,7 @@ describe("certification", () => {
         isCertified: true,
       });
       expect(result.sourceTimestamp).toBeDefined();
-      expect(result.createdAt).toBeDefined();
+      // createdAt is managed by CDS `managed` aspect, not set manually
       expect(mockRun).toHaveBeenCalledTimes(2);
     });
 
@@ -102,7 +102,6 @@ describe("certification", () => {
         fieldValue: "Renault",
         source: "SIV",
         isCertified: true,
-        createdAt: "2026-01-01T00:00:00.000Z",
       });
       expect(mockRun).toHaveBeenCalledTimes(2);
     });

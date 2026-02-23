@@ -78,6 +78,16 @@ jest.mock("../../../srv/lib/audit-logger", () => ({
   logAudit: (...args: any[]) => mockLogAudit(...args),
 }));
 
+jest.mock("../../../srv/lib/visibility-score", () => ({
+  calculateVisibilityScore: jest.fn().mockReturnValue(75),
+  getFilledFieldsFromListing: jest.fn().mockReturnValue(["make", "model"]),
+}));
+
+jest.mock("@auto/shared", () => ({
+  validateListingField: jest.fn().mockReturnValue(null),
+  CERTIFIABLE_FIELDS: ["make", "model", "year", "plate", "vin", "fuelType"],
+}));
+
 (global as any).SELECT = {
   one: { from: jest.fn().mockReturnValue({ where: jest.fn().mockReturnValue("q") }) },
   from: jest.fn().mockReturnValue({ where: jest.fn().mockReturnValue("q") }),
@@ -210,8 +220,8 @@ describe("Auto-Fill Integration Tests", () => {
     // All fields should be certified
     expect(fields.every((f: any) => f.isCertified === true)).toBe(true);
 
-    // markFieldCertified should have been called for each field
-    expect(mockMarkFieldCertified.mock.calls.length).toBe(fields.length);
+    // CertifiedField records are created when listing is persisted (Story 3-3), not during auto-fill
+    expect(mockMarkFieldCertified).not.toHaveBeenCalled();
 
     // Cache should have been written for each adapter
     expect(mockSetCachedResponse).toHaveBeenCalledTimes(5);

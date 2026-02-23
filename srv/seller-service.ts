@@ -14,11 +14,7 @@ import {
   getCritAir,
   getVINTechnical,
 } from "./adapters/factory/adapter-factory";
-import {
-  markFieldCertified,
-  getCertifiedFields,
-  overrideCertifiedField,
-} from "./lib/certification";
+import { getCertifiedFields, overrideCertifiedField } from "./lib/certification";
 import { getCachedResponse, setCachedResponse } from "./lib/api-cache";
 import { logAudit } from "./lib/audit-logger";
 import { calculateVisibilityScore, getFilledFieldsFromListing } from "./lib/visibility-score";
@@ -170,7 +166,6 @@ function extractVINTechnicalFields(response: unknown, source: string): Certified
 
   const fieldMap: Record<string, string | number | null | undefined> = {
     bodyClass: data.bodyClass,
-    driveType: data.driveType,
     engineCylinders: data.engineCylinders,
     manufacturer: data.manufacturer,
     vehicleType: data.vehicleType,
@@ -274,17 +269,17 @@ export default class SellerServiceHandler extends cds.ApplicationService {
     // Validate identifier format
     if (identifierType === "plate") {
       if (!PLATE_REGEX.test(normalizedIdentifier)) {
-        return req.error(400, "Invalid plate format. Expected: XX-NNN-XX (e.g., AB-123-CD)");
+        req.error(400, "Invalid plate format. Expected: XX-NNN-XX (e.g., AB-123-CD)");
+        return;
       }
     } else if (identifierType === "vin") {
       if (!VIN_REGEX.test(normalizedIdentifier)) {
-        return req.error(
-          400,
-          "Invalid VIN format. Expected: 17 alphanumeric characters (no I, O, Q)",
-        );
+        req.error(400, "Invalid VIN format. Expected: 17 alphanumeric characters (no I, O, Q)");
+        return;
       }
     } else {
-      return req.error(400, "Invalid identifierType. Must be 'plate' or 'vin'");
+      req.error(400, "Invalid identifierType. Must be 'plate' or 'vin'");
+      return;
     }
 
     const adapterCalls = buildAdapterCalls(normalizedIdentifier, identifierType);
@@ -306,7 +301,7 @@ export default class SellerServiceHandler extends cds.ApplicationService {
     try {
       // Check cache first
       const cached = await getCachedResponse<VehicleLookupResponse>(
-        identifier,
+        normalizedIdentifier,
         identifierType,
         vehicleLookupConfig.interfaceName,
       );
@@ -318,7 +313,7 @@ export default class SellerServiceHandler extends cds.ApplicationService {
         const fields = vehicleLookupConfig.extractFields(cached, "cache (SIV)");
         allFields.push(...fields);
       } else {
-        const response = await vehicleLookupConfig.call(identifier, identifierType);
+        const response = await vehicleLookupConfig.call(normalizedIdentifier, identifierType);
         vehicleData = response as VehicleLookupResponse;
         vehicleSource.status = "success";
         vehicleSource.providerKey = vehicleData?.provider?.providerName || "unknown";
@@ -330,7 +325,7 @@ export default class SellerServiceHandler extends cds.ApplicationService {
 
         // Cache the response
         await setCachedResponse(
-          identifier,
+          normalizedIdentifier,
           identifierType,
           vehicleLookupConfig.interfaceName,
           response,
@@ -359,7 +354,11 @@ export default class SellerServiceHandler extends cds.ApplicationService {
 
         try {
           // Check cache first
-          const cached = await getCachedResponse(identifier, identifierType, config.interfaceName);
+          const cached = await getCachedResponse(
+            normalizedIdentifier,
+            identifierType,
+            config.interfaceName,
+          );
 
           if (cached) {
             source.status = "cached";
@@ -368,7 +367,7 @@ export default class SellerServiceHandler extends cds.ApplicationService {
             return { source, fields };
           }
 
-          const response = await config.call(identifier, identifierType, vehicleData);
+          const response = await config.call(normalizedIdentifier, identifierType, vehicleData);
           if (response === null) {
             source.status = "failed";
             source.errorMessage = "Insufficient data (no VIN available)";
@@ -385,7 +384,12 @@ export default class SellerServiceHandler extends cds.ApplicationService {
           const fields = config.extractFields(response, sourceName);
 
           // Cache the response
-          await setCachedResponse(identifier, identifierType, config.interfaceName, response);
+          await setCachedResponse(
+            normalizedIdentifier,
+            identifierType,
+            config.interfaceName,
+            response,
+          );
 
           return { source, fields };
         } catch (err) {
@@ -405,17 +409,8 @@ export default class SellerServiceHandler extends cds.ApplicationService {
       }
     }
 
-    // Step 3: Create CertifiedField records for a temporary listing ID
-    // (actual listingId will be assigned when the listing is created)
-    const tempListingId = cds.utils.uuid();
-
-    for (const field of allFields) {
-      try {
-        await markFieldCertified(tempListingId, field.fieldName, field.fieldValue, field.source);
-      } catch (err) {
-        LOG.warn(`Failed to certify field ${field.fieldName}:`, err);
-      }
-    }
+    // NOTE: CertifiedField records are created when the listing is persisted (Story 3-3),
+    // not during the auto-fill lookup. The fields data is returned in the response JSON.
 
     // Audit log
     try {
@@ -461,6 +456,12 @@ export default class SellerServiceHandler extends cds.ApplicationService {
     const listing = await cds.run(SELECT.one.from(Listing).where({ ID: listingId }));
     if (!listing) {
       return req.error(404, "Listing not found");
+    }
+
+    // Verify ownership
+    const userId = (req.user as { id?: string })?.id;
+    if (!userId || listing.sellerId !== userId) {
+      return req.error(403, "Not authorized to update this listing");
     }
 
     let previousCertifiedValue: string | undefined;

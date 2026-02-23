@@ -62,7 +62,7 @@ entity Listing : cuid, managed {
 
 // ─── Certified Field (Story 3-2) ──────────────────────────────────────────
 
-entity CertifiedField : cuid {
+entity CertifiedField : cuid, managed {
   listingId       : String(36);
   fieldName       : String(100);
   fieldValue      : String(2000);
@@ -70,7 +70,6 @@ entity CertifiedField : cuid {
   sourceTimestamp  : Timestamp;
   isCertified     : Boolean default true;
   isOverridden    : Boolean default false;
-  createdAt       : Timestamp;
 }
 
 // ─── Certified Field History (Story 3-3) ──────────────────────────────────
@@ -95,3 +94,8 @@ entity ApiCachedData : cuid {
   expiresAt         : Timestamp;
   isValid           : Boolean default true;
 }
+
+// ─── Indexes ──────────────────────────────────────────────────────────────
+
+annotate CertifiedField with @(assert.unique: [{listingId, fieldName}]);
+annotate ApiCachedData with @(assert.unique: [{vehicleIdentifier, identifierType, adapterName, isValid}]);

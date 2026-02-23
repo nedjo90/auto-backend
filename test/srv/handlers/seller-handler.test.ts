@@ -15,6 +15,7 @@ jest.mock("@sap/cds", () => {
         CertifiedField: "CertifiedField",
         ApiCachedData: "ApiCachedData",
         AuditTrailEntry: "AuditTrailEntry",
+        Listing: "Listing",
       })),
       run: (...args: any[]) => mockRun(...args),
       log: jest.fn(() => mockLog),
@@ -64,8 +65,16 @@ jest.mock("../../../srv/adapters/factory/adapter-factory", () => ({
 }));
 
 const mockMarkFieldCertified = jest.fn().mockResolvedValue({ ID: "cert-1" });
+const mockGetCertifiedFields = jest.fn().mockResolvedValue([]);
+const mockOverrideCertifiedField = jest.fn().mockResolvedValue({
+  previousValue: "OldValue",
+  previousSource: "SIV",
+  newRecord: {},
+});
 jest.mock("../../../srv/lib/certification", () => ({
   markFieldCertified: (...args: any[]) => mockMarkFieldCertified(...args),
+  getCertifiedFields: (...args: any[]) => mockGetCertifiedFields(...args),
+  overrideCertifiedField: (...args: any[]) => mockOverrideCertifiedField(...args),
 }));
 
 const mockGetCachedResponse = jest.fn().mockResolvedValue(null);
@@ -78,6 +87,18 @@ jest.mock("../../../srv/lib/api-cache", () => ({
 const mockLogAudit = jest.fn().mockResolvedValue(undefined);
 jest.mock("../../../srv/lib/audit-logger", () => ({
   logAudit: (...args: any[]) => mockLogAudit(...args),
+}));
+
+const mockCalculateVisibilityScore = jest.fn().mockReturnValue(75);
+const mockGetFilledFieldsFromListing = jest.fn().mockReturnValue(["make", "model"]);
+jest.mock("../../../srv/lib/visibility-score", () => ({
+  calculateVisibilityScore: (...args: any[]) => mockCalculateVisibilityScore(...args),
+  getFilledFieldsFromListing: (...args: any[]) => mockGetFilledFieldsFromListing(...args),
+}));
+
+jest.mock("@auto/shared", () => ({
+  validateListingField: jest.fn().mockReturnValue(null),
+  CERTIFIABLE_FIELDS: ["make", "model", "year", "plate", "vin", "fuelType"],
 }));
 
 // Global CDS query helpers
@@ -380,15 +401,15 @@ describe("SellerService - autoFillByPlate", () => {
       expect(sources.every((s: any) => s.status === "success")).toBe(true);
     });
 
-    it("should call markFieldCertified for each field", async () => {
+    it("should NOT call markFieldCertified during auto-fill (deferred to listing creation)", async () => {
       const req = createMockRequest({
         identifier: "AB-123-CD",
         identifierType: "plate",
       });
       await handleAutoFill(req);
 
-      // Should have called markFieldCertified multiple times (once per extracted field)
-      expect(mockMarkFieldCertified.mock.calls.length).toBeGreaterThan(0);
+      // CertifiedField records are created when the listing is persisted, not during auto-fill
+      expect(mockMarkFieldCertified).not.toHaveBeenCalled();
     });
 
     it("should cache adapter responses via setCachedResponse", async () => {
@@ -510,5 +531,144 @@ describe("SellerService - autoFillByPlate", () => {
       // Vehicle lookup should NOT have been called
       expect(mockLookup).not.toHaveBeenCalled();
     });
+  });
+});
+
+// ─── updateListingField Tests ─────────────────────────────────────────────────
+
+describe("SellerService - updateListingField", () => {
+  let handleUpdateListingField: any;
+
+  beforeAll(() => {
+    const handler2 = new SellerServiceHandler();
+    handler2.on = (event: string, fn: any) => {
+      if (event === "updateListingField") {
+        handleUpdateListingField = fn;
+      }
+    };
+    handler2.init();
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockRun.mockReset();
+    mockGetCertifiedFields.mockResolvedValue([]);
+    mockOverrideCertifiedField.mockResolvedValue({
+      previousValue: "OldValue",
+      previousSource: "SIV",
+      newRecord: {},
+    });
+    mockCalculateVisibilityScore.mockReturnValue(75);
+    mockGetFilledFieldsFromListing.mockReturnValue(["make", "model"]);
+    const { validateListingField } = require("@auto/shared");
+    validateListingField.mockReturnValue(null);
+  });
+
+  it("should return 404 when listing not found", async () => {
+    mockRun.mockResolvedValueOnce(null); // SELECT listing
+    const req = createMockRequest({
+      listingId: "nonexistent",
+      fieldName: "make",
+      value: "Renault",
+    });
+    await handleUpdateListingField(req);
+    expect(req.error).toHaveBeenCalledWith(404, "Listing not found");
+  });
+
+  it("should return 403 when user is not the listing owner", async () => {
+    mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "other-user" }); // SELECT listing
+    const req = createMockRequest({
+      listingId: "listing-1",
+      fieldName: "make",
+      value: "Renault",
+    });
+    await handleUpdateListingField(req);
+    expect(req.error).toHaveBeenCalledWith(403, expect.stringContaining("Not authorized"));
+  });
+
+  it("should update a declared field successfully", async () => {
+    // SELECT listing
+    mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "test-user-1" });
+    // UPDATE listing field
+    mockRun.mockResolvedValueOnce(undefined);
+    // SELECT updated listing
+    mockRun.mockResolvedValueOnce({ ID: "listing-1", make: "Renault" });
+    // UPDATE visibility score
+    mockRun.mockResolvedValueOnce(undefined);
+
+    const req = createMockRequest({
+      listingId: "listing-1",
+      fieldName: "description",
+      value: "A great car with low mileage",
+    });
+    const result = await handleUpdateListingField(req);
+
+    expect(req.error).not.toHaveBeenCalled();
+    expect(result).toBeDefined();
+    expect(result.fieldName).toBe("description");
+    expect(result.status).toBe("declared");
+  });
+
+  it("should handle certifiable field override", async () => {
+    mockGetCertifiedFields.mockResolvedValue([
+      { fieldName: "make", isCertified: true, fieldValue: "Renault" },
+    ]);
+    // SELECT listing
+    mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "test-user-1" });
+    // UPDATE listing field
+    mockRun.mockResolvedValueOnce(undefined);
+    // SELECT updated listing
+    mockRun.mockResolvedValueOnce({ ID: "listing-1", make: "Peugeot" });
+    // UPDATE visibility score
+    mockRun.mockResolvedValueOnce(undefined);
+
+    const req = createMockRequest({
+      listingId: "listing-1",
+      fieldName: "make",
+      value: "Peugeot",
+    });
+    const result = await handleUpdateListingField(req);
+
+    expect(mockOverrideCertifiedField).toHaveBeenCalledWith(
+      "listing-1",
+      "make",
+      "Peugeot",
+      "test-user-1",
+    );
+    expect(result.previousCertifiedValue).toBe("OldValue");
+  });
+
+  it("should set status to empty when value is empty string", async () => {
+    // SELECT listing
+    mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "test-user-1" });
+    // UPDATE listing field
+    mockRun.mockResolvedValueOnce(undefined);
+    // SELECT updated listing
+    mockRun.mockResolvedValueOnce({ ID: "listing-1" });
+    // UPDATE visibility score
+    mockRun.mockResolvedValueOnce(undefined);
+
+    const req = createMockRequest({
+      listingId: "listing-1",
+      fieldName: "color",
+      value: "",
+    });
+    const result = await handleUpdateListingField(req);
+
+    expect(result.status).toBe("empty");
+  });
+
+  it("should return 400 for invalid field value", async () => {
+    const { validateListingField } = require("@auto/shared");
+    validateListingField.mockReturnValueOnce("Le prix doit être un nombre");
+
+    const req = createMockRequest({
+      listingId: "listing-1",
+      fieldName: "price",
+      value: "not-a-number",
+    });
+    await handleUpdateListingField(req);
+
+    expect(req.error).toHaveBeenCalledWith(400, "Le prix doit être un nombre");
   });
 });

@@ -18,7 +18,7 @@ export interface CertifiedFieldRecord {
   sourceTimestamp: string;
   isCertified: boolean;
   isOverridden?: boolean;
-  createdAt: string;
+  createdAt?: string;
 }
 
 export interface OverrideCertifiedResult {
@@ -68,7 +68,6 @@ export async function markFieldCertified(
       source,
       sourceTimestamp: now,
       isCertified: true,
-      createdAt: existing.createdAt,
     };
   }
 
@@ -81,7 +80,6 @@ export async function markFieldCertified(
     source,
     sourceTimestamp: now,
     isCertified: true,
-    createdAt: now,
   };
 
   await cds.run(INSERT.into(entity).entries(record));
@@ -167,7 +165,6 @@ export async function overrideCertifiedField(
     sourceTimestamp: now,
     isCertified: false,
     isOverridden: false,
-    createdAt: now,
   };
 
   await cds.run(INSERT.into(certEntity).entries(newRecord));
