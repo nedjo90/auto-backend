@@ -185,7 +185,10 @@ describe("Declaration Integration - Full Flow", () => {
     ]);
 
     mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "seller-1", status: "draft" }); // SELECT listing
-    mockRun.mockResolvedValueOnce([{ version: "v1.0" }]); // SELECT template
+    mockRun.mockResolvedValueOnce(null); // SELECT existing declaration (none)
+    mockRun.mockResolvedValueOnce([
+      { version: "v1.0", checkboxItems: JSON.stringify(["Item 1", "Item 2"]) },
+    ]); // SELECT template
     mockRun.mockResolvedValueOnce(undefined); // INSERT declaration
     mockRun.mockResolvedValueOnce(undefined); // UPDATE listing
 
@@ -222,6 +225,7 @@ describe("Declaration Integration - Full Flow", () => {
 
   it("7.3 Incomplete declaration: reject when checkbox unchecked", async () => {
     mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "seller-1", status: "draft" });
+    mockRun.mockResolvedValueOnce(null); // no existing declaration
 
     const partialChecked = JSON.stringify([
       { label: "Item 1", checked: true },
@@ -286,13 +290,52 @@ describe("Declaration Integration - Full Flow", () => {
     );
   });
 
-  it("7.6 Template configurability: different template version used", async () => {
-    mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "seller-1", status: "draft" });
-    mockRun.mockResolvedValueOnce([{ version: "v2.0" }]); // New template version
-    mockRun.mockResolvedValueOnce(undefined);
-    mockRun.mockResolvedValueOnce(undefined);
+  it("7.6 Template configurability: load v1 template, then submit with v2 template", async () => {
+    // Step 1: Load v1 template
+    mockRun.mockResolvedValueOnce([
+      {
+        version: "v1.0",
+        checkboxItems: JSON.stringify(["Old item 1", "Old item 2"]),
+        introText: "Old intro",
+        legalNotice: "Old legal",
+      },
+    ]);
 
-    const allChecked = JSON.stringify([{ label: "New Item", checked: true }]);
+    const templateReq1 = createMockRequest({});
+    const template1 = await handleGetTemplate(templateReq1);
+    expect(template1.version).toBe("v1.0");
+
+    // Step 2: Template changes to v2 with 3 items
+    mockRun.mockResolvedValueOnce([
+      {
+        version: "v2.0",
+        checkboxItems: JSON.stringify(["New item A", "New item B", "New item C"]),
+        introText: "New intro",
+        legalNotice: "New legal",
+      },
+    ]);
+
+    const templateReq2 = createMockRequest({});
+    const template2 = await handleGetTemplate(templateReq2);
+    expect(template2.version).toBe("v2.0");
+
+    // Step 3: Submit with v2 template (3 items)
+    mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "seller-1", status: "draft" });
+    mockRun.mockResolvedValueOnce(null); // no existing declaration
+    mockRun.mockResolvedValueOnce([
+      {
+        version: "v2.0",
+        checkboxItems: JSON.stringify(["New item A", "New item B", "New item C"]),
+      },
+    ]);
+    mockRun.mockResolvedValueOnce(undefined); // INSERT
+    mockRun.mockResolvedValueOnce(undefined); // UPDATE
+
+    const allChecked = JSON.stringify([
+      { label: "New item A", checked: true },
+      { label: "New item B", checked: true },
+      { label: "New item C", checked: true },
+    ]);
     const req = createMockRequest({
       listingId: "listing-1",
       checkboxStates: allChecked,
@@ -300,11 +343,24 @@ describe("Declaration Integration - Full Flow", () => {
     const result = await handleSubmitDeclaration(req);
 
     expect(result.success).toBe(true);
-    // Verify audit log includes the new version
     expect(mockLogAudit).toHaveBeenCalledWith(
       expect.objectContaining({
         details: expect.stringContaining("v2.0"),
       }),
     );
+  });
+
+  it("7.7 Duplicate declaration prevention: reject second declaration for same listing", async () => {
+    mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "seller-1", status: "draft" });
+    mockRun.mockResolvedValueOnce({ ID: "existing-decl-id" }); // existing declaration found
+
+    const allChecked = JSON.stringify([{ label: "Item 1", checked: true }]);
+    const req = createMockRequest({
+      listingId: "listing-1",
+      checkboxStates: allChecked,
+    });
+    await handleSubmitDeclaration(req);
+
+    expect(req.error).toHaveBeenCalledWith(409, "A declaration already exists for this listing");
   });
 });

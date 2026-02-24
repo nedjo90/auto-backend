@@ -1370,6 +1370,12 @@ export default class SellerServiceHandler extends cds.ApplicationService {
       return req.error(400, "Declaration can only be submitted for draft listings");
     }
 
+    // Prevent duplicate declarations for the same listing
+    const existingDeclaration = await cds.run(SELECT.one.from(Declaration).where({ listingId }));
+    if (existingDeclaration) {
+      return req.error(409, "A declaration already exists for this listing");
+    }
+
     // Parse and validate checkbox states
     let parsedCheckboxStates: Array<{ label: string; checked: boolean }>;
     try {
@@ -1388,15 +1394,29 @@ export default class SellerServiceHandler extends cds.ApplicationService {
       return req.error(400, "All checkboxes must be checked to submit declaration");
     }
 
-    // Get active template version
+    // Get active template and validate checkbox count matches
     const templates = await cds.run(
       SELECT.from(ConfigDeclarationTemplate).where({ isActive: true }),
     );
     const templateVersion = templates && templates.length > 0 ? templates[0].version : "unknown";
 
-    // Capture IP address
+    if (templates && templates.length > 0) {
+      const templateItems: string[] =
+        typeof templates[0].checkboxItems === "string"
+          ? JSON.parse(templates[0].checkboxItems)
+          : templates[0].checkboxItems;
+      if (parsedCheckboxStates.length !== templateItems.length) {
+        return req.error(
+          400,
+          `Expected ${templateItems.length} checkboxes, received ${parsedCheckboxStates.length}`,
+        );
+      }
+    }
+
+    // Capture IP address (extract client IP from x-forwarded-for chain)
+    const forwardedFor = req.headers && (req.headers["x-forwarded-for"] as string);
     const ipAddress =
-      (req.headers && (req.headers["x-forwarded-for"] as string)) ||
+      (forwardedFor ? forwardedFor.split(",")[0].trim() : null) ||
       (req as unknown as { ip?: string }).ip ||
       "unknown";
 

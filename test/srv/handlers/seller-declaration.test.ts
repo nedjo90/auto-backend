@@ -249,8 +249,12 @@ describe("SellerService - submitDeclaration", () => {
   it("should create a declaration record for a valid draft listing", async () => {
     // SELECT listing
     mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "test-user-1", status: "draft" });
+    // SELECT existing declaration (none)
+    mockRun.mockResolvedValueOnce(null);
     // SELECT template
-    mockRun.mockResolvedValueOnce([{ version: "v1.0" }]);
+    mockRun.mockResolvedValueOnce([
+      { version: "v1.0", checkboxItems: JSON.stringify(["Attestation 1", "Attestation 2"]) },
+    ]);
     // INSERT declaration
     mockRun.mockResolvedValueOnce(undefined);
     // UPDATE listing
@@ -312,6 +316,7 @@ describe("SellerService - submitDeclaration", () => {
 
   it("should return 400 when checkboxStates is invalid JSON", async () => {
     mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "test-user-1", status: "draft" });
+    mockRun.mockResolvedValueOnce(null); // no existing declaration
 
     const req = createMockRequest({
       listingId: "listing-1",
@@ -324,6 +329,7 @@ describe("SellerService - submitDeclaration", () => {
 
   it("should return 400 when checkboxStates is an empty array", async () => {
     mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "test-user-1", status: "draft" });
+    mockRun.mockResolvedValueOnce(null); // no existing declaration
 
     const req = createMockRequest({
       listingId: "listing-1",
@@ -336,6 +342,7 @@ describe("SellerService - submitDeclaration", () => {
 
   it("should return 400 when not all checkboxes are checked", async () => {
     mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "test-user-1", status: "draft" });
+    mockRun.mockResolvedValueOnce(null); // no existing declaration
 
     const checkboxes = JSON.stringify([
       { label: "Item 1", checked: true },
@@ -370,7 +377,10 @@ describe("SellerService - submitDeclaration", () => {
 
   it("should capture IP address from x-forwarded-for header", async () => {
     mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "test-user-1", status: "draft" });
-    mockRun.mockResolvedValueOnce([{ version: "v1.0" }]);
+    mockRun.mockResolvedValueOnce(null); // no existing declaration
+    mockRun.mockResolvedValueOnce([
+      { version: "v1.0", checkboxItems: JSON.stringify(["Attestation 1", "Attestation 2"]) },
+    ]);
     mockRun.mockResolvedValueOnce(undefined);
     mockRun.mockResolvedValueOnce(undefined);
 
@@ -391,7 +401,10 @@ describe("SellerService - submitDeclaration", () => {
 
   it("should use template version from active template", async () => {
     mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "test-user-1", status: "draft" });
-    mockRun.mockResolvedValueOnce([{ version: "v2.5" }]);
+    mockRun.mockResolvedValueOnce(null); // no existing declaration
+    mockRun.mockResolvedValueOnce([
+      { version: "v2.5", checkboxItems: JSON.stringify(["Attestation 1", "Attestation 2"]) },
+    ]);
     mockRun.mockResolvedValueOnce(undefined);
     mockRun.mockResolvedValueOnce(undefined);
 
@@ -402,12 +415,15 @@ describe("SellerService - submitDeclaration", () => {
     await handleSubmitDeclaration(req);
 
     // Verify INSERT was called with correct template version
-    expect(mockRun).toHaveBeenCalledTimes(4);
+    expect(mockRun).toHaveBeenCalledTimes(5);
   });
 
   it("should update listing with declarationId after successful submission", async () => {
     mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "test-user-1", status: "draft" });
-    mockRun.mockResolvedValueOnce([{ version: "v1.0" }]);
+    mockRun.mockResolvedValueOnce(null); // no existing declaration
+    mockRun.mockResolvedValueOnce([
+      { version: "v1.0", checkboxItems: JSON.stringify(["Attestation 1", "Attestation 2"]) },
+    ]);
     mockRun.mockResolvedValueOnce(undefined);
     mockRun.mockResolvedValueOnce(undefined);
 
@@ -418,13 +434,16 @@ describe("SellerService - submitDeclaration", () => {
     const result = await handleSubmitDeclaration(req);
 
     expect(result.success).toBe(true);
-    // 4 cds.run calls: SELECT listing, SELECT template, INSERT declaration, UPDATE listing
-    expect(mockRun).toHaveBeenCalledTimes(4);
+    // 5 cds.run calls: SELECT listing, SELECT existing decl, SELECT template, INSERT declaration, UPDATE listing
+    expect(mockRun).toHaveBeenCalledTimes(5);
   });
 
   it("should create audit trail entry on successful submission", async () => {
     mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "test-user-1", status: "draft" });
-    mockRun.mockResolvedValueOnce([{ version: "v1.0" }]);
+    mockRun.mockResolvedValueOnce(null); // no existing declaration
+    mockRun.mockResolvedValueOnce([
+      { version: "v1.0", checkboxItems: JSON.stringify(["Attestation 1", "Attestation 2"]) },
+    ]);
     mockRun.mockResolvedValueOnce(undefined);
     mockRun.mockResolvedValueOnce(undefined);
 
@@ -445,7 +464,8 @@ describe("SellerService - submitDeclaration", () => {
 
   it("should use 'unknown' version when no template is found", async () => {
     mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "test-user-1", status: "draft" });
-    mockRun.mockResolvedValueOnce([]);
+    mockRun.mockResolvedValueOnce(null); // no existing declaration
+    mockRun.mockResolvedValueOnce([]); // no template
     mockRun.mockResolvedValueOnce(undefined);
     mockRun.mockResolvedValueOnce(undefined);
 
@@ -458,9 +478,72 @@ describe("SellerService - submitDeclaration", () => {
     expect(result.success).toBe(true);
   });
 
+  it("should return 409 when declaration already exists for listing", async () => {
+    mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "test-user-1", status: "draft" });
+    mockRun.mockResolvedValueOnce({ ID: "existing-decl" }); // existing declaration
+
+    const req = createMockRequest({
+      listingId: "listing-1",
+      checkboxStates: validCheckboxStates,
+    });
+    await handleSubmitDeclaration(req);
+
+    expect(req.error).toHaveBeenCalledWith(409, "A declaration already exists for this listing");
+  });
+
+  it("should return 400 when checkbox count does not match template", async () => {
+    mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "test-user-1", status: "draft" });
+    mockRun.mockResolvedValueOnce(null); // no existing declaration
+    mockRun.mockResolvedValueOnce([
+      {
+        version: "v1.0",
+        checkboxItems: JSON.stringify(["Item 1", "Item 2", "Item 3"]),
+      },
+    ]);
+
+    const twoItems = JSON.stringify([
+      { label: "Item 1", checked: true },
+      { label: "Item 2", checked: true },
+    ]);
+    const req = createMockRequest({
+      listingId: "listing-1",
+      checkboxStates: twoItems,
+    });
+    await handleSubmitDeclaration(req);
+
+    expect(req.error).toHaveBeenCalledWith(400, "Expected 3 checkboxes, received 2");
+  });
+
+  it("should extract first IP from x-forwarded-for chain", async () => {
+    mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "test-user-1", status: "draft" });
+    mockRun.mockResolvedValueOnce(null); // no existing declaration
+    mockRun.mockResolvedValueOnce([
+      { version: "v1.0", checkboxItems: JSON.stringify(["A1", "A2"]) },
+    ]);
+    mockRun.mockResolvedValueOnce(undefined);
+    mockRun.mockResolvedValueOnce(undefined);
+
+    const req = createMockRequest({
+      listingId: "listing-1",
+      checkboxStates: validCheckboxStates,
+    });
+    req.headers = { "x-forwarded-for": "203.0.113.50, 10.0.0.1, 172.16.0.1" };
+
+    await handleSubmitDeclaration(req);
+
+    expect(mockLogAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ipAddress: "203.0.113.50",
+      }),
+    );
+  });
+
   it("should not fail if audit logging throws", async () => {
     mockRun.mockResolvedValueOnce({ ID: "listing-1", sellerId: "test-user-1", status: "draft" });
-    mockRun.mockResolvedValueOnce([{ version: "v1.0" }]);
+    mockRun.mockResolvedValueOnce(null); // no existing declaration
+    mockRun.mockResolvedValueOnce([
+      { version: "v1.0", checkboxItems: JSON.stringify(["Attestation 1", "Attestation 2"]) },
+    ]);
     mockRun.mockResolvedValueOnce(undefined);
     mockRun.mockResolvedValueOnce(undefined);
     mockLogAudit.mockRejectedValueOnce(new Error("Audit failed"));
