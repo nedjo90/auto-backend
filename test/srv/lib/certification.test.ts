@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-require-imports */
+export {};
 
 const mockRun = jest.fn();
 const mockUuid = jest.fn(() => "test-uuid-123");

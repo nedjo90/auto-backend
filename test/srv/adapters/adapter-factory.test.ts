@@ -1,4 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-require-imports, @typescript-eslint/no-unsafe-function-type */
+export {};
 
 const mockGetAll = jest.fn();
 jest.mock("../../../srv/lib/config-cache", () => ({

@@ -124,6 +124,18 @@ entity ConfigSeoTemplate : cuid, managed {
   active                  : Boolean default true;
 }
 
+// ─── Listing Card Configuration (Story 4-1) ──────────────────────────────
+
+@assert.unique: {fieldName: [fieldName]}
+entity ConfigListingCard : cuid, managed {
+  fieldName    : String(50) not null;
+  displayOrder : Integer default 0;
+  isVisible    : Boolean default true;
+  labelFr      : String(100);
+  labelEn      : String(100);
+  fieldType    : String(20) default 'text'; // text, badge, price, location
+}
+
 // ─── Alert configuration (Story 2-5) ────────────────────────────────────
 
 @assert.unique: {name: [name]}

@@ -20,6 +20,9 @@ service AdminService {
   @readonly entity ApiCallLogs              as projection on auto.ApiCallLog;
   @readonly entity AlertEvents             as projection on auto.AlertEvent;
 
+  // ─── Listing Card Config (Story 4-1) ────────────────────────────────
+  entity ConfigListingCards as projection on auto.ConfigListingCard;
+
   // ─── API Provider Health (Story 3-11) ──────────────────────────────
   @readonly entity ApiProviderHealths      as projection on auto.ApiProviderHealth;
 

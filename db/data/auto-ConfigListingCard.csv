@@ -1,0 +1,8 @@
+ID,fieldName,displayOrder,isVisible,labelFr,labelEn,fieldType
+c1a00001-0000-0000-0000-000000000001,price,1,true,Prix,Price,price
+c1a00001-0000-0000-0000-000000000002,make,2,true,Marque,Make,text
+c1a00001-0000-0000-0000-000000000003,model,3,true,Modèle,Model,text
+c1a00001-0000-0000-0000-000000000004,year,4,true,Année,Year,text
+c1a00001-0000-0000-0000-000000000005,mileage,5,true,Kilométrage,Mileage,text
+c1a00001-0000-0000-0000-000000000006,fuelType,6,true,Carburant,Fuel Type,badge
+c1a00001-0000-0000-0000-000000000007,visibilityLabel,7,true,Certification,Certification,badge

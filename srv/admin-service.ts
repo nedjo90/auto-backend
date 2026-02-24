@@ -27,6 +27,7 @@ const ENTITY_TABLE_MAP: Record<string, string> = {
   ConfigApiProviders: "ConfigApiProvider",
   ConfigAlerts: "ConfigAlert",
   ConfigSeoTemplates: "ConfigSeoTemplate",
+  ConfigListingCards: "ConfigListingCard",
   LegalDocuments: "LegalDocument",
   LegalDocumentVersions: "LegalDocumentVersion",
 };
