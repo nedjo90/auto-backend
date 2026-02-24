@@ -229,4 +229,25 @@ service SellerService {
   action getListingHistory() returns {
     listings : LargeString;   // JSON array of ISellerListingHistoryItem
   };
+
+  /** Check if re-sync is available for a listing (Story 3-11) */
+  action checkResyncAvailability(
+    listingId : String(36) not null
+  ) returns {
+    listingId            : String(36);
+    hasResyncableFields  : Boolean;
+    availableAdapters    : LargeString;   // JSON array of IResyncAdapterAvailability
+  };
+
+  /** Re-sync listing fields from previously failed adapters (Story 3-11) */
+  action resyncListing(
+    listingId    : String(36) not null,
+    adapterNames : LargeString not null   // JSON array of adapter interface names
+  ) returns {
+    listingId          : String(36);
+    success            : Boolean;
+    updatedFields      : LargeString;   // JSON array of CertifiedFieldResult
+    failedAdapters     : LargeString;   // JSON array of adapter names
+    newVisibilityScore : Integer;
+  };
 }

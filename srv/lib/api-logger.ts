@@ -15,6 +15,8 @@ export interface ApiCallEntry {
   listingId?: string;
   requestId?: string;
   errorMessage?: string;
+  isFailure?: boolean;
+  errorType?: string;
 }
 
 /** Consecutive failure tracking per provider. */
@@ -120,6 +122,7 @@ export async function logApiCall(entry: ApiCallEntry): Promise<void> {
       return;
     }
 
+    const isFailure = entry.isFailure ?? entry.httpStatus >= 400;
     await cds.run(
       INSERT.into(entity).entries({
         adapterInterface: entry.adapterInterface,
@@ -132,6 +135,8 @@ export async function logApiCall(entry: ApiCallEntry): Promise<void> {
         listingId: entry.listingId || null,
         requestId: entry.requestId || null,
         errorMessage: entry.errorMessage || null,
+        isFailure,
+        errorType: entry.errorType || null,
         timestamp: new Date().toISOString(),
       }),
     );

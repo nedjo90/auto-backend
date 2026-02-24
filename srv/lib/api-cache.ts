@@ -1,10 +1,18 @@
 import cds from "@sap/cds";
+import type { CacheDataStatus } from "@auto/shared";
 import { configCache } from "./config-cache";
 
 const LOG = cds.log("api-cache");
 
 const DEFAULT_CACHE_TTL_HOURS = 48;
 const CACHE_TTL_CONFIG_KEY = "API_CACHE_TTL_HOURS";
+
+/** Result of a cache lookup with freshness status. */
+export interface CacheResult<T> {
+  data: T;
+  status: CacheDataStatus;
+  fetchedAt: string;
+}
 
 /**
  * Get the configured cache TTL in hours from ConfigParameter table.
@@ -61,6 +69,54 @@ export async function getCachedResponse<T>(
     LOG.warn(`Failed to parse cached response data for ${adapterName} / ${vehicleIdentifier}`);
     return null;
   }
+}
+
+/**
+ * Look up cached API response with freshness status.
+ * Unlike getCachedResponse, this also returns stale (expired) data as a last resort.
+ * Returns null only if no cache entry exists at all.
+ */
+export async function getCachedResponseWithStatus<T>(
+  vehicleIdentifier: string,
+  identifierType: string,
+  adapterName: string,
+): Promise<CacheResult<T> | null> {
+  const entities = cds.entities("auto");
+  const entity = entities["ApiCachedData"];
+  if (!entity) {
+    LOG.warn("ApiCachedData entity not found, skipping cache lookup");
+    return null;
+  }
+
+  const now = new Date().toISOString();
+
+  const row = await cds.run(
+    SELECT.one.from(entity).where({
+      vehicleIdentifier,
+      identifierType,
+      adapterName,
+      isValid: true,
+    }),
+  );
+
+  if (!row) return null;
+
+  let data: T;
+  try {
+    data = JSON.parse(row.responseData) as T;
+  } catch {
+    LOG.warn(`Failed to parse cached response for ${adapterName} / ${vehicleIdentifier}`);
+    return null;
+  }
+
+  let status: CacheDataStatus;
+  if (row.expiresAt && row.expiresAt <= now) {
+    status = "stale";
+  } else {
+    status = "cached";
+  }
+
+  return { data, status, fetchedAt: row.fetchedAt };
 }
 
 /**

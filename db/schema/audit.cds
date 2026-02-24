@@ -31,7 +31,21 @@ entity ApiCallLog : cuid {
   listingId        : String(36);
   requestId        : String(36);
   errorMessage     : String(500);
+  isFailure        : Boolean default false;
+  errorType        : String(20);    // timeout, connection, response, rate_limit
   timestamp        : Timestamp;
+}
+
+// ─── API Provider Health Monitoring (Story 3-11) ──────────────────
+
+entity ApiProviderHealth : cuid {
+  adapterName         : String(100);
+  providerName        : String(100);
+  consecutiveFailures : Integer default 0;
+  lastSuccessAt       : Timestamp;
+  lastFailureAt       : Timestamp;
+  isCircuitOpen       : Boolean default false;
+  circuitOpenedAt     : Timestamp;
 }
 
 // ─── Alert Events (Story 2-5) ───────────────────────────────────────

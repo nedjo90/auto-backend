@@ -69,9 +69,25 @@ jest.mock("../../../srv/lib/certification", () => ({
 
 const mockGetCachedResponse = jest.fn().mockResolvedValue(null);
 const mockSetCachedResponse = jest.fn().mockResolvedValue(undefined);
+const mockGetCachedResponseWithStatus = jest.fn().mockResolvedValue(null);
 jest.mock("../../../srv/lib/api-cache", () => ({
   getCachedResponse: (...args: any[]) => mockGetCachedResponse(...args),
+  getCachedResponseWithStatus: (...args: any[]) => mockGetCachedResponseWithStatus(...args),
   setCachedResponse: (...args: any[]) => mockSetCachedResponse(...args),
+}));
+
+jest.mock("../../../srv/lib/adapter-resilience", () => ({
+  withResilience: async (_name: string, _key: string, fn: () => Promise<any>) => fn(),
+  classifyError: jest.fn().mockReturnValue("response"),
+}));
+
+jest.mock("../../../srv/handlers/resync-handler", () => ({
+  handleCheckResyncAvailability: jest.fn(),
+  handleResyncListing: jest.fn(),
+}));
+
+jest.mock("../../../srv/middleware/audit-trail", () => ({
+  auditLog: jest.fn().mockResolvedValue(undefined),
 }));
 
 const mockLogAudit = jest.fn().mockResolvedValue(undefined);

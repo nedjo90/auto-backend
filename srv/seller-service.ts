@@ -7,7 +7,12 @@ import type {
   VINTechnicalResponse,
   HistoryResponse,
 } from "@auto/shared";
-import type { CertifiedFieldResult, ApiSourceStatus, ApiSourceStatusState } from "@auto/shared";
+import type {
+  CertifiedFieldResult,
+  ApiSourceStatus,
+  ApiSourceStatusState,
+  AdapterErrorType,
+} from "@auto/shared";
 import {
   getVehicleLookup,
   getEmission,
@@ -21,7 +26,8 @@ import {
   getCertifiedFields,
   overrideCertifiedField,
 } from "./lib/certification";
-import { getCachedResponse, setCachedResponse } from "./lib/api-cache";
+import { getCachedResponse, getCachedResponseWithStatus, setCachedResponse } from "./lib/api-cache";
+import { withResilience, classifyError } from "./lib/adapter-resilience";
 import { logAudit } from "./lib/audit-logger";
 import { auditLog } from "./middleware/audit-trail";
 import { calculateVisibilityScore } from "./lib/visibility-score";
@@ -57,6 +63,7 @@ import {
   handleGetSellerListings,
   handleGetListingHistory,
 } from "./handlers/lifecycle-handler";
+import { handleCheckResyncAvailability, handleResyncListing } from "./handlers/resync-handler";
 
 const LOG = cds.log("seller");
 
@@ -329,6 +336,8 @@ export default class SellerServiceHandler extends cds.ApplicationService {
     this.on("archiveListing", handleArchiveListing);
     this.on("getSellerListings", handleGetSellerListings);
     this.on("getListingHistory", handleGetListingHistory);
+    this.on("checkResyncAvailability", handleCheckResyncAvailability);
+    this.on("resyncListing", handleResyncListing);
     this.before("UPDATE", "Declarations", this.rejectDeclarationUpdate);
     this.before("DELETE", "Declarations", this.rejectDeclarationDelete);
     await super.init();
@@ -387,10 +396,13 @@ export default class SellerServiceHandler extends cds.ApplicationService {
         vehicleData = cached;
         vehicleSource.status = "cached";
         vehicleSource.providerKey = "cache";
+        vehicleSource.cacheStatus = "cached";
         const fields = vehicleLookupConfig.extractFields(cached, "cache (SIV)");
         allFields.push(...fields);
       } else {
-        const response = await vehicleLookupConfig.call(normalizedIdentifier, identifierType);
+        const response = await withResilience(vehicleLookupConfig.interfaceName, "auto", () =>
+          vehicleLookupConfig.call(normalizedIdentifier, identifierType),
+        );
         vehicleData = response as VehicleLookupResponse;
         vehicleSource.status = "success";
         vehicleSource.providerKey = vehicleData?.provider?.providerName || "unknown";
@@ -411,8 +423,33 @@ export default class SellerServiceHandler extends cds.ApplicationService {
     } catch (err) {
       vehicleSource.status = "failed";
       vehicleSource.errorMessage = err instanceof Error ? err.message : String(err);
+      vehicleSource.errorType = classifyError(err) as AdapterErrorType;
       vehicleSource.responseTimeMs = Date.now() - startTime;
       LOG.error("VehicleLookup failed:", err);
+
+      // Cache fallback: try to serve stale data
+      try {
+        const fallback = await getCachedResponseWithStatus<VehicleLookupResponse>(
+          normalizedIdentifier,
+          identifierType,
+          vehicleLookupConfig.interfaceName,
+        );
+        if (fallback) {
+          vehicleData = fallback.data;
+          vehicleSource.status = "cached";
+          vehicleSource.cacheStatus = fallback.status;
+          vehicleSource.cachedAt = fallback.fetchedAt;
+          vehicleSource.errorMessage = undefined;
+          vehicleSource.errorType = undefined;
+          const fields = vehicleLookupConfig.extractFields(fallback.data, `cache (SIV)`);
+          allFields.push(...fields);
+          LOG.info(
+            `VehicleLookup served from ${fallback.status} cache for ${normalizedIdentifier}`,
+          );
+        }
+      } catch (cacheErr) {
+        LOG.warn("Cache fallback failed for VehicleLookup:", cacheErr);
+      }
     }
 
     allSources.push(vehicleSource);
@@ -440,11 +477,14 @@ export default class SellerServiceHandler extends cds.ApplicationService {
           if (cached) {
             source.status = "cached";
             source.providerKey = "cache";
+            source.cacheStatus = "cached";
             const fields = config.extractFields(cached, `cache (${config.interfaceName})`);
             return { source, fields };
           }
 
-          const response = await config.call(normalizedIdentifier, identifierType, vehicleData);
+          const response = await withResilience(config.interfaceName, "auto", () =>
+            config.call(normalizedIdentifier, identifierType, vehicleData),
+          );
           if (response === null) {
             source.status = "failed";
             source.errorMessage = "Insufficient data (no VIN available)";
@@ -472,7 +512,32 @@ export default class SellerServiceHandler extends cds.ApplicationService {
         } catch (err) {
           source.status = "failed";
           source.errorMessage = err instanceof Error ? err.message : String(err);
+          source.errorType = classifyError(err) as AdapterErrorType;
           source.responseTimeMs = Date.now() - callStart;
+
+          // Cache fallback: try to serve stale/cached data
+          try {
+            const fallback = await getCachedResponseWithStatus(
+              normalizedIdentifier,
+              identifierType,
+              config.interfaceName,
+            );
+            if (fallback) {
+              source.status = "cached";
+              source.cacheStatus = fallback.status;
+              source.cachedAt = fallback.fetchedAt;
+              source.errorMessage = undefined;
+              source.errorType = undefined;
+              const fields = config.extractFields(fallback.data, `cache (${config.interfaceName})`);
+              LOG.info(
+                `${config.interfaceName} served from ${fallback.status} cache for ${normalizedIdentifier}`,
+              );
+              return { source, fields };
+            }
+          } catch (cacheErr) {
+            LOG.warn(`Cache fallback failed for ${config.interfaceName}:`, cacheErr);
+          }
+
           return { source, fields: [] };
         }
       }),

@@ -20,6 +20,9 @@ service AdminService {
   @readonly entity ApiCallLogs              as projection on auto.ApiCallLog;
   @readonly entity AlertEvents             as projection on auto.AlertEvent;
 
+  // ─── API Provider Health (Story 3-11) ──────────────────────────────
+  @readonly entity ApiProviderHealths      as projection on auto.ApiProviderHealth;
+
   // ─── Audit Trail (Story 2-8) ─────────────────────────────────────────
   @readonly entity AuditTrailEntries as projection on auto.AuditTrailEntry;
 
