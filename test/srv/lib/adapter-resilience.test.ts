@@ -116,7 +116,7 @@ describe("adapter-resilience", () => {
     it("should create a rate limit error with retryAfterMs", () => {
       const err = createTypedError(new Error("429 Too Many Requests"), "ademe");
       expect(err.errorType).toBe("rate_limit");
-      expect(err.retryable).toBe(true);
+      expect(err.retryable).toBe(false);
       expect(err.retryAfterMs).toBe(60000);
     });
   });

@@ -56,7 +56,7 @@ export function createTypedError(err: unknown, provider: string): AdapterTypedEr
     code: `ADAPTER_${errorType.toUpperCase()}`,
     message,
     provider,
-    retryable: errorType === "timeout" || errorType === "connection" || errorType === "rate_limit",
+    retryable: errorType === "timeout" || errorType === "connection",
     errorType,
     httpStatus,
     retryAfterMs: errorType === "rate_limit" ? 60000 : undefined,

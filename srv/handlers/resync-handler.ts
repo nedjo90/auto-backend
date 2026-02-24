@@ -166,21 +166,28 @@ export async function handleResyncListing(req: cds.Request): Promise<unknown> {
     }
 
     try {
-      const result = await callAdapterForResync(adapterName, identifier, identifierType, listing);
+      const { fields, rawResponse } = await callAdapterForResync(
+        adapterName,
+        identifier,
+        identifierType,
+        listing,
+      );
 
-      if (result.length > 0) {
-        // Update certified fields in DB
-        for (const field of result) {
+      if (fields.length > 0) {
+        // Mark each field as certified
+        for (const field of fields) {
           await markFieldCertified(listingId, field.fieldName, field.fieldValue, field.source);
-          // Update listing field value
-          const updateData: Record<string, unknown> = {};
-          updateData[field.fieldName] = field.fieldValue;
-          await cds.run(UPDATE(entities["Listing"]).set(updateData).where({ ID: listingId }));
         }
-        updatedFields.push(...result);
+        // Batch update listing fields in a single UPDATE
+        const updateData: Record<string, unknown> = {};
+        for (const field of fields) {
+          updateData[field.fieldName] = field.fieldValue;
+        }
+        await cds.run(UPDATE(entities["Listing"]).set(updateData).where({ ID: listingId }));
+        updatedFields.push(...fields);
 
-        // Cache the response
-        await setCachedResponse(identifier, identifierType, adapterName, result);
+        // Cache the raw adapter response (not extracted fields)
+        await setCachedResponse(identifier, identifierType, adapterName, rawResponse);
       }
     } catch (err) {
       LOG.warn(`Resync failed for ${adapterName}:`, err);
@@ -198,7 +205,7 @@ export async function handleResyncListing(req: cds.Request): Promise<unknown> {
     let hasHistory = false;
     try {
       const hr = await cds.run(
-        SELECT.one.from(entities["Listing"]).columns("ID").where({ ID: listingId }),
+        SELECT.one.from(entities["HistoryReport"]).columns("ID").where({ listingId }),
       );
       hasHistory = !!hr;
     } catch {
@@ -250,6 +257,12 @@ export async function handleResyncListing(req: cds.Request): Promise<unknown> {
   };
 }
 
+interface AdapterResyncResult {
+  fields: CertifiedFieldResult[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  rawResponse: any;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function callAdapterForResync(
   adapterName: string,
@@ -257,7 +270,7 @@ async function callAdapterForResync(
   identifierType: string,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   listing: any,
-): Promise<CertifiedFieldResult[]> {
+): Promise<AdapterResyncResult> {
   const now = new Date().toISOString();
 
   switch (adapterName) {
@@ -266,26 +279,29 @@ async function callAdapterForResync(
       const response = await withResilience<VehicleLookupResponse>(adapterName, "auto", () =>
         adapter.lookup(identifierType === "plate" ? { plate: identifier } : { vin: identifier }),
       );
-      return extractResyncFields(response, "SIV", now, [
-        "plate",
-        "vin",
-        "make",
-        "model",
-        "variant",
-        "year",
-        "registrationDate",
-        "fuelType",
-        "engineCapacityCc",
-        "powerKw",
-        "powerHp",
-        "gearbox",
-        "bodyType",
-        "doors",
-        "seats",
-        "color",
-        "co2GKm",
-        "euroNorm",
-      ]);
+      return {
+        rawResponse: response,
+        fields: extractResyncFields(response, "SIV", now, [
+          "plate",
+          "vin",
+          "make",
+          "model",
+          "variant",
+          "year",
+          "registrationDate",
+          "fuelType",
+          "engineCapacityCc",
+          "powerKw",
+          "powerHp",
+          "gearbox",
+          "bodyType",
+          "doors",
+          "seats",
+          "color",
+          "co2GKm",
+          "euroNorm",
+        ]),
+      };
     }
     case "IEmissionAdapter": {
       const adapter = getEmission();
@@ -297,7 +313,10 @@ async function callAdapterForResync(
           fuelType: listing.fuelType,
         }),
       );
-      return extractResyncFields(response, "ADEME", now, ["co2GKm", "energyClass", "euroNorm"]);
+      return {
+        rawResponse: response,
+        fields: extractResyncFields(response, "ADEME", now, ["co2GKm", "energyClass", "euroNorm"]),
+      };
     }
     case "IRecallAdapter": {
       const adapter = getRecall();
@@ -307,15 +326,18 @@ async function callAdapterForResync(
           model: listing.model || "Unknown",
         }),
       );
-      return [
-        {
-          fieldName: "recallCount",
-          fieldValue: String(response.totalCount),
-          source: "RappelConso",
-          sourceTimestamp: now,
-          isCertified: true,
-        },
-      ];
+      return {
+        rawResponse: response,
+        fields: [
+          {
+            fieldName: "recallCount",
+            fieldValue: String(response.totalCount),
+            source: "RappelConso",
+            sourceTimestamp: now,
+            isCertified: true,
+          },
+        ],
+      };
     }
     case "ICritAirCalculator": {
       const adapter = getCritAir();
@@ -326,47 +348,53 @@ async function callAdapterForResync(
           registrationDate: listing.registrationDate || "2020-01-01",
         }),
       );
-      return [
-        {
-          fieldName: "critAirLevel",
-          fieldValue: response.level,
-          source: "Crit'Air",
-          sourceTimestamp: now,
-          isCertified: true,
-        },
-        {
-          fieldName: "critAirLabel",
-          fieldValue: response.label,
-          source: "Crit'Air",
-          sourceTimestamp: now,
-          isCertified: true,
-        },
-        {
-          fieldName: "critAirColor",
-          fieldValue: response.color,
-          source: "Crit'Air",
-          sourceTimestamp: now,
-          isCertified: true,
-        },
-      ];
+      return {
+        rawResponse: response,
+        fields: [
+          {
+            fieldName: "critAirLevel",
+            fieldValue: response.level,
+            source: "Crit'Air",
+            sourceTimestamp: now,
+            isCertified: true,
+          },
+          {
+            fieldName: "critAirLabel",
+            fieldValue: response.label,
+            source: "Crit'Air",
+            sourceTimestamp: now,
+            isCertified: true,
+          },
+          {
+            fieldName: "critAirColor",
+            fieldValue: response.color,
+            source: "Crit'Air",
+            sourceTimestamp: now,
+            isCertified: true,
+          },
+        ],
+      };
     }
     case "IVINTechnicalAdapter": {
       const vin = listing.vin;
-      if (!vin) return [];
+      if (!vin) return { rawResponse: null, fields: [] };
       const adapter = getVINTechnical();
       const response = await withResilience<VINTechnicalResponse>(adapterName, "auto", () =>
         adapter.decode({ vin }),
       );
-      return extractResyncFields(response, "NHTSA", now, [
-        "bodyClass",
-        "engineCylinders",
-        "manufacturer",
-        "vehicleType",
-        "plantCountry",
-      ]);
+      return {
+        rawResponse: response,
+        fields: extractResyncFields(response, "NHTSA", now, [
+          "bodyClass",
+          "engineCylinders",
+          "manufacturer",
+          "vehicleType",
+          "plantCountry",
+        ]),
+      };
     }
     default:
-      return [];
+      return { rawResponse: null, fields: [] };
   }
 }
 
