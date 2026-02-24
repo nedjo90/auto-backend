@@ -150,6 +150,41 @@ service SellerService {
     declarationVersion : String(20);
   };
 
+  /** Get all eligible drafts for publication with pricing info */
+  action getPublishableListings() returns {
+    listings     : LargeString;   // JSON array of IPublishableListing
+    unitPriceCents : Integer;
+  };
+
+  /** Calculate batch total for selected listings */
+  action calculateBatchTotal(
+    listingIds : LargeString not null   // JSON array of listing UUIDs
+  ) returns {
+    count          : Integer;
+    unitPriceCents : Integer;
+    totalCents     : Integer;
+    listingIds     : LargeString;   // JSON array (validated)
+  };
+
+  /** Create a Stripe Checkout Session for batch publication */
+  action createCheckoutSession(
+    listingIds : LargeString not null,   // JSON array of listing UUIDs
+    successUrl : String(500) not null,
+    cancelUrl  : String(500) not null
+  ) returns {
+    sessionId  : String(255);
+    sessionUrl : String(500);
+  };
+
+  /** Get payment session status (for polling after redirect) */
+  action getPaymentSessionStatus(
+    sessionId : String(255) not null
+  ) returns {
+    status       : String(20);
+    listingCount : Integer;
+    listings     : LargeString;   // JSON array: [{ID, status}]
+  };
+
   /** Update a single listing field and recalculate visibility score */
   action updateListingField(
     listingId : String(36) not null,

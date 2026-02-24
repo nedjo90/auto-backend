@@ -45,6 +45,12 @@ import {
   PHOTO_ALLOWED_MIME_TYPES,
   calculateCompletionPercentage,
 } from "@auto/shared";
+import {
+  handleGetPublishableListings,
+  handleCalculateBatchTotal,
+  handleCreateCheckoutSession,
+  handleGetPaymentSessionStatus,
+} from "./handlers/payment-handler";
 
 const LOG = cds.log("seller");
 
@@ -309,6 +315,10 @@ export default class SellerServiceHandler extends cds.ApplicationService {
     this.on("submitDeclaration", this.handleSubmitDeclaration);
     this.on("getDeclarationSummary", this.handleGetDeclarationSummary);
     this.on("fetchHistoryReport", this.handleFetchHistoryReport);
+    this.on("getPublishableListings", handleGetPublishableListings);
+    this.on("calculateBatchTotal", handleCalculateBatchTotal);
+    this.on("createCheckoutSession", handleCreateCheckoutSession);
+    this.on("getPaymentSessionStatus", handleGetPaymentSessionStatus);
     this.before("UPDATE", "Declarations", this.rejectDeclarationUpdate);
     this.before("DELETE", "Declarations", this.rejectDeclarationDelete);
     await super.init();
@@ -1516,7 +1526,10 @@ export default class SellerServiceHandler extends cds.ApplicationService {
     }
 
     if (!listing.vin) {
-      return req.error(400, "Listing has no VIN - auto-fill must be completed before fetching history report");
+      return req.error(
+        400,
+        "Listing has no VIN - auto-fill must be completed before fetching history report",
+      );
     }
 
     // Check for existing report
@@ -1552,7 +1565,10 @@ export default class SellerServiceHandler extends cds.ApplicationService {
       // Fetch from adapter — wrap in try-catch for network/provider errors
       try {
         const adapter = getHistory();
-        reportData = await adapter.getHistory({ vin: listing.vin, plate: listing.plate || undefined });
+        reportData = await adapter.getHistory({
+          vin: listing.vin,
+          plate: listing.plate || undefined,
+        });
       } catch (err: unknown) {
         LOG.error(`History adapter failed for VIN ${listing.vin}:`, err);
         return req.error(502, "Le fournisseur d'historique est temporairement indisponible");
@@ -1595,7 +1611,9 @@ export default class SellerServiceHandler extends cds.ApplicationService {
       throw err;
     }
 
-    LOG.info(`History report ${reportId} created for listing ${listingId} (source: ${reportData.provider.providerName})`);
+    LOG.info(
+      `History report ${reportId} created for listing ${listingId} (source: ${reportData.provider.providerName})`,
+    );
 
     await auditLog({
       action: "listing.updated",

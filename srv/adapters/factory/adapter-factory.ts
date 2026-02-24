@@ -22,6 +22,7 @@ import { MockVINTechnicalAdapter } from "../mock/mock-vin-technical.adapter";
 import { MockHistoryAdapter } from "../mock/mock-history.adapter";
 import { MockValuationAdapter } from "../mock/mock-valuation.adapter";
 import { MockPaymentAdapter } from "../mock/mock-payment.adapter";
+import { StripePaymentAdapter } from "../stripe/stripe-payment.adapter";
 import { configCache } from "../../lib/config-cache";
 import { withApiLogging } from "../../lib/api-logger";
 import cds from "@sap/cds";
@@ -56,6 +57,7 @@ const ADAPTER_REGISTRY: Record<string, () => unknown> = {
   "mock.history": () => new MockHistoryAdapter(),
   "mock.valuation": () => new MockValuationAdapter(),
   "mock.payment": () => new MockPaymentAdapter(),
+  stripe: () => new StripePaymentAdapter(),
 };
 
 /** Mock fallback provider keys per interface. */

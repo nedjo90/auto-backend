@@ -9,3 +9,4 @@ using from './schema/rgpd';
 using from './schema/legal';
 using from './schema/listing';
 using from './schema/declaration';
+using from './schema/payment';
