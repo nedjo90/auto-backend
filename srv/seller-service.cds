@@ -10,6 +10,10 @@ service SellerService {
   @restrict: [{ grant: ['READ', 'WRITE'], where: 'sellerId = $user.id' }]
   entity Listings as projection on auto.Listing;
 
+  @readonly
+  @restrict: [{ grant: 'READ', where: 'sellerId = $user.id' }]
+  entity Declarations as projection on auto.Declaration;
+
   /** Auto-fill vehicle data by license plate or VIN */
   action autoFillByPlate(
     identifier     : String(20) not null,
@@ -106,6 +110,33 @@ service SellerService {
   ) returns {
     success : Boolean;
     message : String;
+  };
+
+  /** Get the active declaration template */
+  action getDeclarationTemplate() returns {
+    version       : String(20);
+    checkboxItems : LargeString;   // JSON array of checkbox labels
+    introText     : String(2000);
+    legalNotice   : String(2000);
+  };
+
+  /** Submit a signed declaration of honor for a listing */
+  action submitDeclaration(
+    listingId      : String(36) not null,
+    checkboxStates : LargeString not null   // JSON array: [{label, checked}]
+  ) returns {
+    declarationId : String(36);
+    signedAt      : String;
+    success       : Boolean;
+  };
+
+  /** Get declaration summary for a listing (safe for buyer view - no checkbox details) */
+  action getDeclarationSummary(
+    listingId : String(36) not null
+  ) returns {
+    hasDeclared        : Boolean;
+    signedAt           : String;
+    declarationVersion : String(20);
   };
 
   /** Update a single listing field and recalculate visibility score */

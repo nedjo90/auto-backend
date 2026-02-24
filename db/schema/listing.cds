@@ -57,6 +57,7 @@ entity Listing : cuid, managed {
   visibilityScore       : Integer default 0;
   visibilityLabel       : String(50) default 'Partiellement documenté';
   completionPercentage  : Integer default 0;
+  declarationId         : String(36);
 
   // Associations
   certifiedFields   : Composition of many CertifiedField on certifiedFields.listingId = $self.ID;

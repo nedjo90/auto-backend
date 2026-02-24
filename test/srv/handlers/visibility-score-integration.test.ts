@@ -22,6 +22,7 @@ jest.mock("@sap/cds", () => {
       ApplicationService: class {
         async init() {}
         on(_event: string, _handler: any) {}
+        before(_event: string, _entity: string, _handler: any) {}
       },
     },
   };

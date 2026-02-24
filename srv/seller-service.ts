@@ -302,6 +302,11 @@ export default class SellerServiceHandler extends cds.ApplicationService {
     this.on("uploadPhoto", this.handleUploadPhoto);
     this.on("reorderPhotos", this.handleReorderPhotos);
     this.on("deletePhoto", this.handleDeletePhoto);
+    this.on("getDeclarationTemplate", this.handleGetDeclarationTemplate);
+    this.on("submitDeclaration", this.handleSubmitDeclaration);
+    this.on("getDeclarationSummary", this.handleGetDeclarationSummary);
+    this.before("UPDATE", "Declarations", this.rejectDeclarationUpdate);
+    this.before("DELETE", "Declarations", this.rejectDeclarationDelete);
     await super.init();
   }
 
@@ -1315,5 +1320,160 @@ export default class SellerServiceHandler extends cds.ApplicationService {
     LOG.info(`Photo deleted from listing ${listingId}: ${photoId}`);
 
     return { success: true, message: "Photo deleted" };
+  };
+
+  // ─── Declaration of Honor handlers (Story 3-7) ──────────────────────────
+
+  private handleGetDeclarationTemplate = async (req: cds.Request) => {
+    const entities = cds.entities("auto");
+    const ConfigDeclarationTemplate = entities["ConfigDeclarationTemplate"];
+
+    const templates = await cds.run(
+      SELECT.from(ConfigDeclarationTemplate).where({ isActive: true }),
+    );
+
+    if (!templates || templates.length === 0) {
+      return req.error(404, "No active declaration template found");
+    }
+
+    if (templates.length > 1) {
+      LOG.warn("Multiple active declaration templates found, using first");
+    }
+
+    const template = templates[0];
+    return {
+      version: template.version,
+      checkboxItems: template.checkboxItems,
+      introText: template.introText,
+      legalNotice: template.legalNotice,
+    };
+  };
+
+  private handleSubmitDeclaration = async (req: cds.Request) => {
+    const { listingId, checkboxStates } = req.data as {
+      listingId: string;
+      checkboxStates: string;
+    };
+    const userId = (req.user as { id?: string })?.id;
+    if (!userId) return req.error(401, "Authentication required");
+
+    const entities = cds.entities("auto");
+    const Listing = entities["Listing"];
+    const Declaration = entities["Declaration"];
+    const ConfigDeclarationTemplate = entities["ConfigDeclarationTemplate"];
+
+    // Validate listing exists and belongs to current seller
+    const listing = await cds.run(SELECT.one.from(Listing).where({ ID: listingId }));
+    if (!listing) return req.error(404, "Listing not found");
+    if (listing.sellerId !== userId) return req.error(403, "Not authorized");
+    if (listing.status !== "draft") {
+      return req.error(400, "Declaration can only be submitted for draft listings");
+    }
+
+    // Parse and validate checkbox states
+    let parsedCheckboxStates: Array<{ label: string; checked: boolean }>;
+    try {
+      parsedCheckboxStates = JSON.parse(checkboxStates);
+    } catch {
+      return req.error(400, "Invalid checkboxStates format");
+    }
+
+    if (!Array.isArray(parsedCheckboxStates) || parsedCheckboxStates.length === 0) {
+      return req.error(400, "checkboxStates must be a non-empty array");
+    }
+
+    // Validate all checkboxes are checked
+    const unchecked = parsedCheckboxStates.filter((cb) => !cb.checked);
+    if (unchecked.length > 0) {
+      return req.error(400, "All checkboxes must be checked to submit declaration");
+    }
+
+    // Get active template version
+    const templates = await cds.run(
+      SELECT.from(ConfigDeclarationTemplate).where({ isActive: true }),
+    );
+    const templateVersion = templates && templates.length > 0 ? templates[0].version : "unknown";
+
+    // Capture IP address
+    const ipAddress =
+      (req.headers && (req.headers["x-forwarded-for"] as string)) ||
+      (req as unknown as { ip?: string }).ip ||
+      "unknown";
+
+    // Create Declaration record
+    const declarationId = cds.utils.uuid();
+    const signedAt = new Date().toISOString();
+
+    await cds.run(
+      INSERT.into(Declaration).entries({
+        ID: declarationId,
+        listingId,
+        sellerId: userId,
+        declarationVersion: templateVersion,
+        checkboxStates: JSON.stringify(parsedCheckboxStates),
+        ipAddress,
+        signedAt,
+        createdAt: signedAt,
+      }),
+    );
+
+    // Update listing with declarationId
+    await cds.run(UPDATE(Listing).set({ declarationId }).where({ ID: listingId }));
+
+    // Audit log
+    try {
+      await logAudit({
+        userId,
+        action: "declaration.submitted",
+        resource: "Declaration",
+        details: JSON.stringify({
+          declarationId,
+          listingId,
+          version: templateVersion,
+        }),
+        ipAddress,
+      });
+    } catch {
+      LOG.warn("Failed to log audit for declaration submission");
+    }
+
+    LOG.info(`Declaration submitted for listing ${listingId} by seller ${userId}`);
+
+    return {
+      declarationId,
+      signedAt,
+      success: true,
+    };
+  };
+
+  private handleGetDeclarationSummary = async (req: cds.Request) => {
+    const { listingId } = req.data as { listingId: string };
+
+    const entities = cds.entities("auto");
+    const Declaration = entities["Declaration"];
+
+    const declaration = await cds.run(SELECT.one.from(Declaration).where({ listingId }));
+
+    if (!declaration) {
+      return {
+        hasDeclared: false,
+        signedAt: null,
+        declarationVersion: null,
+      };
+    }
+
+    return {
+      hasDeclared: true,
+      signedAt: declaration.signedAt,
+      declarationVersion: declaration.declarationVersion,
+    };
+  };
+
+  private rejectDeclarationUpdate = async (req: cds.Request) => {
+    return req.error(403, "Declarations are immutable and cannot be updated");
+  };
+
+  private rejectDeclarationDelete = async (req: cds.Request) => {
+    return req.error(403, "Declarations are immutable and cannot be deleted");
   };
 }

@@ -23,6 +23,10 @@ service AdminService {
   // ─── Audit Trail (Story 2-8) ─────────────────────────────────────────
   @readonly entity AuditTrailEntries as projection on auto.AuditTrailEntry;
 
+  // ─── Declaration Management (Story 3-7) ────────────────────────────────
+  @readonly entity Declarations as projection on auto.Declaration;
+  entity ConfigDeclarationTemplates as projection on auto.ConfigDeclarationTemplate;
+
   // ─── Legal document management (Story 2-7) ─────────────────────────────
   entity LegalDocuments        as projection on auto.LegalDocument;
   entity LegalDocumentVersions as projection on auto.LegalDocumentVersion;
