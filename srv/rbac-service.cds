@@ -7,6 +7,11 @@ service RbacService {
   entity UserRoles as projection on auto.UserRole;
 
   @readonly
+  entity Users as projection on auto.User {
+    ID, email, firstName, lastName, displayName, status
+  };
+
+  @readonly
   entity Roles as projection on auto.Role;
 
   @readonly
