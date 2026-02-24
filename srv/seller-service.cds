@@ -130,6 +130,20 @@ service SellerService {
     success       : Boolean;
   };
 
+  @readonly
+  entity HistoryReports as projection on auto.HistoryReport;
+
+  /** Fetch vehicle history report for a listing */
+  action fetchHistoryReport(
+    listingId : String(36) not null
+  ) returns {
+    reportId      : String(36);
+    source        : String(100);
+    fetchedAt     : String;
+    reportVersion : String(20);
+    reportData    : LargeString;   // JSON: HistoryResponse
+  };
+
   /** Get declaration summary for a listing (safe for buyer view - no checkbox details) */
   action getDeclarationSummary(
     listingId : String(36) not null

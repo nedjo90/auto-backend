@@ -62,6 +62,7 @@ entity Listing : cuid, managed {
   // Associations
   certifiedFields   : Composition of many CertifiedField on certifiedFields.listingId = $self.ID;
   photos            : Composition of many ListingPhoto on photos.listingId = $self.ID;
+  historyReport     : Composition of one HistoryReport on historyReport.listingId = $self.ID;
 }
 
 // ─── Certified Field (Story 3-2) ──────────────────────────────────────────
@@ -114,7 +115,18 @@ entity ListingPhoto : cuid, managed {
   uploadedAt  : Timestamp;
 }
 
+// ─── History Report (Story 3-8) ───────────────────────────────────────────
+
+entity HistoryReport : cuid {
+  listingId     : String(36) not null;
+  reportData    : LargeString;    // JSON: full HistoryResponse from adapter
+  source        : String(100);    // provider name (e.g. "mock", "carvertical")
+  fetchedAt     : Timestamp;
+  reportVersion : String(20);     // adapter provider version
+}
+
 // ─── Indexes ──────────────────────────────────────────────────────────────
 
 annotate CertifiedField with @(assert.unique: {listingFieldName: [listingId, fieldName]});
 annotate ApiCachedData with @(assert.unique: {vehicleAdapter: [vehicleIdentifier, identifierType, adapterName, isValid]});
+annotate HistoryReport with @(assert.unique: {listingReport: [listingId]});

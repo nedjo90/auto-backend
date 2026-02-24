@@ -5,6 +5,7 @@ import type {
   RecallResponse,
   CritAirResponse,
   VINTechnicalResponse,
+  HistoryResponse,
 } from "@auto/shared";
 import type { CertifiedFieldResult, ApiSourceStatus, ApiSourceStatusState } from "@auto/shared";
 import {
@@ -13,6 +14,7 @@ import {
   getRecall,
   getCritAir,
   getVINTechnical,
+  getHistory,
 } from "./adapters/factory/adapter-factory";
 import {
   markFieldCertified,
@@ -21,6 +23,7 @@ import {
 } from "./lib/certification";
 import { getCachedResponse, setCachedResponse } from "./lib/api-cache";
 import { logAudit } from "./lib/audit-logger";
+import { auditLog } from "./middleware/audit-trail";
 import { calculateVisibilityScore } from "./lib/visibility-score";
 import type { VisibilityScoreInput } from "@auto/shared";
 import {
@@ -305,6 +308,7 @@ export default class SellerServiceHandler extends cds.ApplicationService {
     this.on("getDeclarationTemplate", this.handleGetDeclarationTemplate);
     this.on("submitDeclaration", this.handleSubmitDeclaration);
     this.on("getDeclarationSummary", this.handleGetDeclarationSummary);
+    this.on("fetchHistoryReport", this.handleFetchHistoryReport);
     this.before("UPDATE", "Declarations", this.rejectDeclarationUpdate);
     this.before("DELETE", "Declarations", this.rejectDeclarationDelete);
     await super.init();
@@ -1495,5 +1499,95 @@ export default class SellerServiceHandler extends cds.ApplicationService {
 
   private rejectDeclarationDelete = async (req: cds.Request) => {
     return req.error(403, "Declarations are immutable and cannot be deleted");
+  };
+
+  private handleFetchHistoryReport = async (req: cds.Request) => {
+    const { listingId } = req.data as { listingId: string };
+    const userId = (req.user as { id: string }).id;
+
+    // Validate listing exists and belongs to seller
+    const entities = cds.entities("auto");
+    const listing = await cds.run(
+      SELECT.one.from(entities["Listing"]).where({ ID: listingId, sellerId: userId }),
+    );
+
+    if (!listing) {
+      return req.error(404, "Listing not found or does not belong to current seller");
+    }
+
+    if (!listing.vin) {
+      return req.error(400, "Listing has no VIN - auto-fill must be completed before fetching history report");
+    }
+
+    // Check for existing report
+    const existingReport = await cds.run(
+      SELECT.one.from(entities["HistoryReport"]).where({ listingId }),
+    );
+
+    if (existingReport) {
+      LOG.info(`Returning existing history report for listing ${listingId}`);
+      return {
+        reportId: existingReport.ID,
+        source: existingReport.source,
+        fetchedAt: existingReport.fetchedAt,
+        reportVersion: existingReport.reportVersion,
+        reportData: existingReport.reportData,
+      };
+    }
+
+    // Check cache first
+    const identifierType = "vin";
+    const cached = await getCachedResponse<HistoryResponse>(
+      listing.vin,
+      identifierType,
+      "IHistoryAdapter",
+    );
+
+    let reportData: HistoryResponse;
+
+    if (cached) {
+      LOG.info(`Using cached history report for VIN ${listing.vin}`);
+      reportData = cached;
+    } else {
+      // Fetch from adapter
+      const adapter = getHistory();
+      reportData = await adapter.getHistory({ vin: listing.vin, plate: listing.plate || undefined });
+
+      // Cache the response
+      await setCachedResponse(listing.vin, identifierType, "IHistoryAdapter", reportData);
+    }
+
+    // Store the report
+    const reportId = cds.utils.uuid();
+    const fetchedAt = new Date().toISOString();
+
+    await cds.run(
+      INSERT.into(entities["HistoryReport"]).entries({
+        ID: reportId,
+        listingId,
+        reportData: JSON.stringify(reportData),
+        source: reportData.provider.providerName,
+        fetchedAt,
+        reportVersion: reportData.provider.providerVersion,
+      }),
+    );
+
+    LOG.info(`History report ${reportId} created for listing ${listingId} (source: ${reportData.provider.providerName})`);
+
+    await auditLog({
+      action: "listing.updated",
+      actorId: userId,
+      targetType: "HistoryReport",
+      targetId: reportId,
+      details: { listingId, vin: listing.vin, source: reportData.provider.providerName },
+    });
+
+    return {
+      reportId,
+      source: reportData.provider.providerName,
+      fetchedAt,
+      reportVersion: reportData.provider.providerVersion,
+      reportData: JSON.stringify(reportData),
+    };
   };
 }

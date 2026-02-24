@@ -4,7 +4,7 @@ import { MockEmissionAdapter } from "../../../../srv/adapters/mock/mock-emission
 import { MockRecallAdapter } from "../../../../srv/adapters/mock/mock-recall.adapter";
 import { MockCritAirAdapter } from "../../../../srv/adapters/mock/mock-critair.adapter";
 import { MockVINTechnicalAdapter } from "../../../../srv/adapters/mock/mock-vin-technical.adapter";
-import { MockHistoryAdapter } from "../../../../srv/adapters/mock/mock-history.adapter";
+import { MockHistoryAdapter, MOCK_HISTORY_VINS } from "../../../../srv/adapters/mock/mock-history.adapter";
 import { MockValuationAdapter } from "../../../../srv/adapters/mock/mock-valuation.adapter";
 import { MockPaymentAdapter } from "../../../../srv/adapters/mock/mock-payment.adapter";
 
@@ -251,28 +251,97 @@ describe("MockVINTechnicalAdapter", () => {
 });
 
 describe("MockHistoryAdapter", () => {
-  const adapter = new MockHistoryAdapter();
+  const adapter = new MockHistoryAdapter(0); // zero delay for tests
 
   it("should have provider metadata", () => {
     expect(adapter.providerName).toBe("mock");
     expect(adapter.providerVersion).toBe("1.0.0");
   });
 
-  it("should return history for known VIN", async () => {
+  it("should return history for known VIN with complete structure", async () => {
     const result = await adapter.getHistory({ vin: "VF1RFB00X56789012" });
+    expect(result.vin).toBe("VF1RFB00X56789012");
     expect(result.ownerCount).toBe(2);
+    expect(result.firstRegistrationDate).toBe("2018-06-01");
+    expect(result.lastRegistrationDate).toBe("2022-03-15");
     expect(result.stolen).toBe(false);
-    expect(result.mileageRecords.length).toBe(2);
+    expect(result.outstandingFinance).toBe(false);
+    expect(result.mileageRecords.length).toBeGreaterThanOrEqual(2);
+    expect(result.registrationHistory.length).toBe(2);
+    expect(result.provider.providerName).toBe("mock");
   });
 
-  it("should return history with accidents", async () => {
+  it("should return history with accidents for damaged vehicle", async () => {
     const result = await adapter.getHistory({ vin: "WVWZZZ3CZWE123456" });
     expect(result.accidents.length).toBe(1);
+    expect(result.accidents[0].severity).toBe("minor");
     expect(result.totalDamageCount).toBe(1);
+  });
+
+  it("should return history with multiple accidents for complex vehicle", async () => {
+    const result = await adapter.getHistory({ vin: "WDD2130011A123456" });
+    expect(result.ownerCount).toBe(4);
+    expect(result.accidents.length).toBe(3);
+    expect(result.totalDamageCount).toBe(3);
+    expect(result.accidents.some((a) => a.severity === "moderate")).toBe(true);
+    expect(result.registrationHistory.length).toBe(4);
+  });
+
+  it("should flag outstanding finance on appropriate vehicle", async () => {
+    const result = await adapter.getHistory({ vin: "VF7SAHMZ0EW123456" });
+    expect(result.outstandingFinance).toBe(true);
+    expect(result.stolen).toBe(false);
+  });
+
+  it("should have clear finance for most vehicles", async () => {
+    const clearVins = ["VF1RFB00X56789012", "VF3LCBHZ6JS123456", "WBA11AA010CH12345"];
+    for (const vin of clearVins) {
+      const result = await adapter.getHistory({ vin });
+      expect(result.outstandingFinance).toBe(false);
+    }
+  });
+
+  it("should include registration history with French departments", async () => {
+    const result = await adapter.getHistory({ vin: "WVWZZZ3CZWE123456" });
+    expect(result.registrationHistory.length).toBe(3);
+    for (const reg of result.registrationHistory) {
+      expect(reg.date).toBeDefined();
+      expect(reg.department).toBeDefined();
+      expect(reg.region).toBeDefined();
+    }
+  });
+
+  it("should include mileage records from various sources", async () => {
+    const result = await adapter.getHistory({ vin: "VF1RFB00X56789012" });
+    const sources = new Set(result.mileageRecords.map((m) => m.source));
+    expect(sources.size).toBeGreaterThanOrEqual(2);
+    expect(sources.has("controle_technique")).toBe(true);
+    expect(sources.has("revision_constructeur")).toBe(true);
+  });
+
+  it("should return deep copies to prevent mutation", async () => {
+    const a = await adapter.getHistory({ vin: "VF1RFB00X56789012" });
+    const b = await adapter.getHistory({ vin: "VF1RFB00X56789012" });
+    expect(a).toEqual(b);
+    expect(a.mileageRecords).not.toBe(b.mileageRecords);
+    expect(a.accidents).not.toBe(b.accidents);
+    expect(a.registrationHistory).not.toBe(b.registrationHistory);
   });
 
   it("should throw for unknown VIN", async () => {
     await expect(adapter.getHistory({ vin: "UNKNOWN" })).rejects.toThrow("No history found");
+  });
+
+  it("should have at least 6 test vehicles", () => {
+    expect(MOCK_HISTORY_VINS.length).toBeGreaterThanOrEqual(6);
+  });
+
+  it("should simulate API latency with configurable delay", async () => {
+    const slowAdapter = new MockHistoryAdapter(50);
+    const start = Date.now();
+    await slowAdapter.getHistory({ vin: "VF1RFB00X56789012" });
+    const elapsed = Date.now() - start;
+    expect(elapsed).toBeGreaterThanOrEqual(40); // allow small margin
   });
 });
 
