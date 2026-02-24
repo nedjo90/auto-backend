@@ -199,4 +199,34 @@ service SellerService {
     suggestions            : LargeString;     // JSON array of ScoreSuggestion
     previousCertifiedValue : String(2000);
   };
+
+  /** Mark a published listing as sold (Story 3-10) */
+  action markAsSold(
+    listingId : String(36) not null
+  ) returns {
+    success   : Boolean;
+    listingId : String(36);
+    newStatus : String(20);
+    timestamp : String;
+  };
+
+  /** Archive a listing (from published or sold status) (Story 3-10) */
+  action archiveListing(
+    listingId : String(36) not null
+  ) returns {
+    success   : Boolean;
+    listingId : String(36);
+    newStatus : String(20);
+    timestamp : String;
+  };
+
+  /** Get seller's published listings with analytics (Story 3-10) */
+  action getSellerListings() returns {
+    listings : LargeString;   // JSON array of ISellerPublishedListing
+  };
+
+  /** Get seller's listing history with performance metrics (Story 3-10) */
+  action getListingHistory() returns {
+    listings : LargeString;   // JSON array of ISellerListingHistoryItem
+  };
 }

@@ -433,7 +433,9 @@ async function processCheckoutCompleted(
     // Update all listings to published
     const publishedAt = new Date().toISOString();
     for (const listingId of listingIds) {
-      await tx.run(UPDATE(Listing).set({ status: "published" }).where({ ID: listingId }));
+      await tx.run(
+        UPDATE(Listing).set({ status: "published", publishedAt }).where({ ID: listingId }),
+      );
     }
 
     // Update payment transaction
@@ -472,6 +474,25 @@ async function processCheckoutCompleted(
         amountCents: webhookEvent.amountCents,
       },
     }).catch((err) => LOG.error("Audit log failed:", err));
+
+    // Initialize analytics records for published listings (fire-and-forget)
+    const allEntities = cds.entities("auto");
+    const ListingAnalytics = allEntities["ListingAnalytics"];
+    if (ListingAnalytics) {
+      for (const listingId of listingIds) {
+        cds
+          .run(
+            INSERT.into(ListingAnalytics).entries({
+              ID: cds.utils.uuid(),
+              listingId,
+              viewCount: 0,
+              favoriteCount: 0,
+              chatCount: 0,
+            }),
+          )
+          .catch((err: unknown) => LOG.warn(`Failed to init analytics for ${listingId}:`, err));
+      }
+    }
 
     LOG.info(`Batch published ${listingIds.length} listings for session ${webhookEvent.sessionId}`);
     expressRes.status(200).json({ received: true });

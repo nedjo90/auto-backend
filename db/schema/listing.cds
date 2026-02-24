@@ -59,6 +59,11 @@ entity Listing : cuid, managed {
   completionPercentage  : Integer default 0;
   declarationId         : String(36);
 
+  // Lifecycle timestamps (Story 3-10)
+  publishedAt           : Timestamp;
+  soldAt                : Timestamp;
+  archivedAt            : Timestamp;
+
   // Associations
   certifiedFields   : Composition of many CertifiedField on certifiedFields.listingId = $self.ID;
   photos            : Composition of many ListingPhoto on photos.listingId = $self.ID;
@@ -115,6 +120,15 @@ entity ListingPhoto : cuid, managed {
   uploadedAt  : Timestamp;
 }
 
+// ─── Listing Analytics (Story 3-10) ───────────────────────────────────────
+
+entity ListingAnalytics : cuid {
+  listingId     : String(36) not null;
+  viewCount     : Integer default 0;
+  favoriteCount : Integer default 0;
+  chatCount     : Integer default 0;
+}
+
 // ─── History Report (Story 3-8) ───────────────────────────────────────────
 
 entity HistoryReport : cuid {
@@ -130,3 +144,4 @@ entity HistoryReport : cuid {
 annotate CertifiedField with @(assert.unique: {listingFieldName: [listingId, fieldName]});
 annotate ApiCachedData with @(assert.unique: {vehicleAdapter: [vehicleIdentifier, identifierType, adapterName, isValid]});
 annotate HistoryReport with @(assert.unique: {listingReport: [listingId]});
+annotate ListingAnalytics with @(assert.unique: {listingAnalytics: [listingId]});

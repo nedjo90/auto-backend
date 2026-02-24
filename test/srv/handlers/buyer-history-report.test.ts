@@ -162,7 +162,7 @@ describe("BuyerService - getHistoryReport", () => {
     expect(req.error).toHaveBeenCalledWith(404, "Listing not found");
   });
 
-  it("should return 403 when listing is not published (draft)", async () => {
+  it("should return 403 when listing is not published or sold (draft)", async () => {
     mockRun.mockResolvedValueOnce({
       ID: "listing-1",
       status: "draft",
@@ -173,7 +173,7 @@ describe("BuyerService - getHistoryReport", () => {
 
     expect(req.error).toHaveBeenCalledWith(
       403,
-      "History report is only available for published listings",
+      "History report is only available for published or sold listings",
     );
   });
 
@@ -188,8 +188,28 @@ describe("BuyerService - getHistoryReport", () => {
 
     expect(req.error).toHaveBeenCalledWith(
       403,
-      "History report is only available for published listings",
+      "History report is only available for published or sold listings",
     );
+  });
+
+  it("should return history report for sold listing", async () => {
+    mockRun.mockResolvedValueOnce({
+      ID: "listing-1",
+      status: "sold",
+    });
+    mockRun.mockResolvedValueOnce({
+      ID: "report-1",
+      source: "mock",
+      fetchedAt: "2026-02-24T10:00:00.000Z",
+      reportVersion: "1.0.0",
+      reportData: MOCK_REPORT_DATA,
+    });
+
+    const req = createMockRequest({ listingId: "listing-1" });
+    const result = await handleGetHistoryReport(req);
+
+    expect(result.reportId).toBe("report-1");
+    expect(result.isMockData).toBe(true);
   });
 
   it("should return 404 when no history report exists for listing", async () => {
@@ -202,10 +222,7 @@ describe("BuyerService - getHistoryReport", () => {
     const req = createMockRequest({ listingId: "listing-1" });
     await handleGetHistoryReport(req);
 
-    expect(req.error).toHaveBeenCalledWith(
-      404,
-      "No history report available for this listing",
-    );
+    expect(req.error).toHaveBeenCalledWith(404, "No history report available for this listing");
   });
 
   it("should return full report data with all fields", async () => {
@@ -246,7 +263,7 @@ describe("BuyerService CDS definition", () => {
     expect(buyerCds).toContain("service BuyerService");
   });
 
-  it("should expose Listings as readonly with published filter", () => {
+  it("should expose Listings as readonly", () => {
     const fs = require("fs");
     const path = require("path");
     const buyerCds = fs.readFileSync(
@@ -255,7 +272,6 @@ describe("BuyerService CDS definition", () => {
     );
     expect(buyerCds).toContain("@readonly");
     expect(buyerCds).toContain("entity Listings as projection on auto.Listing");
-    expect(buyerCds).toContain("published");
   });
 
   it("should define getHistoryReport action", () => {

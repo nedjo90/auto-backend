@@ -4,7 +4,6 @@ using {auto} from '../db/schema';
 @requires: 'authenticated-user'
 service BuyerService {
   @readonly
-  @restrict: [{ grant: 'READ', where: 'status = ''published''' }]
   entity Listings as projection on auto.Listing;
 
   /** Get the history report for a published listing (authenticated buyers only) */

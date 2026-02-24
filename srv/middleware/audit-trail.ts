@@ -12,6 +12,8 @@ export const AUDITABLE_ACTIONS = [
   "listing.updated",
   "listing.deleted",
   "listing.moderated",
+  "listing.sold",
+  "listing.archived",
   // User operations
   "user.registered",
   "user.updated",

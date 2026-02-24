@@ -474,7 +474,7 @@ describe("History Report - Integration Flow", () => {
 
       expect(buyerReq.error).toHaveBeenCalledWith(
         403,
-        "History report is only available for published listings",
+        "History report is only available for published or sold listings",
       );
     });
   });

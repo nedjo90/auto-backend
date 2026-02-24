@@ -51,6 +51,12 @@ import {
   handleCreateCheckoutSession,
   handleGetPaymentSessionStatus,
 } from "./handlers/payment-handler";
+import {
+  handleMarkAsSold,
+  handleArchiveListing,
+  handleGetSellerListings,
+  handleGetListingHistory,
+} from "./handlers/lifecycle-handler";
 
 const LOG = cds.log("seller");
 
@@ -319,6 +325,10 @@ export default class SellerServiceHandler extends cds.ApplicationService {
     this.on("calculateBatchTotal", handleCalculateBatchTotal);
     this.on("createCheckoutSession", handleCreateCheckoutSession);
     this.on("getPaymentSessionStatus", handleGetPaymentSessionStatus);
+    this.on("markAsSold", handleMarkAsSold);
+    this.on("archiveListing", handleArchiveListing);
+    this.on("getSellerListings", handleGetSellerListings);
+    this.on("getListingHistory", handleGetListingHistory);
     this.before("UPDATE", "Declarations", this.rejectDeclarationUpdate);
     this.before("DELETE", "Declarations", this.rejectDeclarationDelete);
     await super.init();
