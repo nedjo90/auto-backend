@@ -5,6 +5,8 @@ import { auditLog, extractAuditContext } from "../middleware/audit-trail";
 
 const LOG = cds.log("lifecycle");
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // ─── markAsSold ─────────────────────────────────────────────────────────────
 
 export async function handleMarkAsSold(req: cds.Request) {
@@ -13,6 +15,10 @@ export async function handleMarkAsSold(req: cds.Request) {
 
   if (!userId) {
     return req.error(401, "Authentification requise");
+  }
+
+  if (!listingId || !UUID_RE.test(listingId)) {
+    return req.error(400, "Identifiant d'annonce invalide");
   }
 
   const entities = cds.entities("auto");
@@ -36,9 +42,15 @@ export async function handleMarkAsSold(req: cds.Request) {
 
   const now = new Date().toISOString();
 
-  await cds.run(
-    UPDATE(entities["Listing"]).set({ status: "sold", soldAt: now }).where({ ID: listingId }),
+  const updated = await cds.run(
+    UPDATE(entities["Listing"])
+      .set({ status: "sold", soldAt: now })
+      .where({ ID: listingId, status: currentStatus }),
   );
+
+  if (updated === 0) {
+    return req.error(409, "L'annonce a ete modifiee entre-temps, veuillez reessayer");
+  }
 
   LOG.info(`Listing ${listingId} marked as sold by seller ${userId}`);
 
@@ -78,6 +90,10 @@ export async function handleArchiveListing(req: cds.Request) {
     return req.error(401, "Authentification requise");
   }
 
+  if (!listingId || !UUID_RE.test(listingId)) {
+    return req.error(400, "Identifiant d'annonce invalide");
+  }
+
   const entities = cds.entities("auto");
   const listing = await cds.run(SELECT.one.from(entities["Listing"]).where({ ID: listingId }));
 
@@ -99,11 +115,15 @@ export async function handleArchiveListing(req: cds.Request) {
 
   const now = new Date().toISOString();
 
-  await cds.run(
+  const updated = await cds.run(
     UPDATE(entities["Listing"])
       .set({ status: "archived", archivedAt: now })
-      .where({ ID: listingId }),
+      .where({ ID: listingId, status: currentStatus }),
   );
+
+  if (updated === 0) {
+    return req.error(409, "L'annonce a ete modifiee entre-temps, veuillez reessayer");
+  }
 
   LOG.info(`Listing ${listingId} archived by seller ${userId}`);
 
@@ -121,6 +141,9 @@ export async function handleArchiveListing(req: cds.Request) {
     requestId: auditCtx.requestId,
     severity: "info",
   });
+
+  // Emit event for chat cleanup and notifications (pluggable, Epic 5)
+  emitListingStatusChanged(listingId, userId, "archived");
 
   return {
     success: true,

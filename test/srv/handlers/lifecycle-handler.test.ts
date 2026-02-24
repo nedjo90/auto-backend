@@ -9,6 +9,11 @@ export {};
 const mockRun = jest.fn();
 const mockUuid = jest.fn(() => "test-uuid-lifecycle");
 
+// Valid UUID for test data
+const LISTING_ID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
+const SELLER_ID = "11111111-2222-3333-4444-555555555555";
+const OTHER_SELLER_ID = "99999999-8888-7777-6666-555544443333";
+
 jest.mock("@sap/cds", () => {
   const mockLog = { warn: jest.fn(), info: jest.fn(), error: jest.fn() };
   return {
@@ -42,7 +47,7 @@ jest.mock("@auto/shared", () => ({
 jest.mock("../../../srv/middleware/audit-trail", () => ({
   auditLog: jest.fn().mockResolvedValue(undefined),
   extractAuditContext: jest.fn().mockReturnValue({
-    actorId: "seller-1",
+    actorId: SELLER_ID,
     actorRole: "seller",
     ipAddress: "127.0.0.1",
     userAgent: "test",
@@ -92,7 +97,7 @@ const {
 } = require("../../../srv/handlers/lifecycle-handler");
 
 // Mock request builder
-function createMockRequest(data: Record<string, any>, userId = "seller-1"): any {
+function createMockRequest(data: Record<string, any>, userId = SELLER_ID): any {
   const errors: any[] = [];
   return {
     data,
@@ -115,23 +120,45 @@ describe("handleMarkAsSold", () => {
 
   it("should mark a published listing as sold", async () => {
     mockRun.mockResolvedValueOnce({
-      ID: "listing-1",
-      sellerId: "seller-1",
+      ID: LISTING_ID,
+      sellerId: SELLER_ID,
       status: "published",
     });
-    mockRun.mockResolvedValueOnce(undefined); // UPDATE
+    mockRun.mockResolvedValueOnce(1); // UPDATE affected 1 row
 
-    const req = createMockRequest({ listingId: "listing-1" });
+    const req = createMockRequest({ listingId: LISTING_ID });
     const result = await handleMarkAsSold(req);
 
     expect(result.success).toBe(true);
     expect(result.newStatus).toBe("sold");
-    expect(result.listingId).toBe("listing-1");
+    expect(result.listingId).toBe(LISTING_ID);
     expect(result.timestamp).toBeTruthy();
   });
 
+  it("should reject invalid UUID format", async () => {
+    const req = createMockRequest({ listingId: "not-a-uuid" });
+    await handleMarkAsSold(req);
+    expect(req.error).toHaveBeenCalledWith(400, "Identifiant d'annonce invalide");
+  });
+
+  it("should return 409 on concurrent modification", async () => {
+    mockRun.mockResolvedValueOnce({
+      ID: LISTING_ID,
+      sellerId: SELLER_ID,
+      status: "published",
+    });
+    mockRun.mockResolvedValueOnce(0); // UPDATE affected 0 rows (concurrent change)
+
+    const req = createMockRequest({ listingId: LISTING_ID });
+    await handleMarkAsSold(req);
+    expect(req.error).toHaveBeenCalledWith(
+      409,
+      "L'annonce a ete modifiee entre-temps, veuillez reessayer",
+    );
+  });
+
   it("should return 401 when user is not authenticated", async () => {
-    const req = createMockRequest({ listingId: "listing-1" });
+    const req = createMockRequest({ listingId: LISTING_ID });
     req.user = { id: undefined };
 
     await handleMarkAsSold(req);
@@ -142,7 +169,7 @@ describe("handleMarkAsSold", () => {
   it("should return 404 when listing does not exist", async () => {
     mockRun.mockResolvedValueOnce(null);
 
-    const req = createMockRequest({ listingId: "nonexistent" });
+    const req = createMockRequest({ listingId: "00000000-0000-0000-0000-000000000000" });
     await handleMarkAsSold(req);
 
     expect(req.error).toHaveBeenCalledWith(404, "Annonce introuvable");
@@ -150,12 +177,12 @@ describe("handleMarkAsSold", () => {
 
   it("should return 403 when seller does not own the listing", async () => {
     mockRun.mockResolvedValueOnce({
-      ID: "listing-1",
-      sellerId: "other-seller",
+      ID: LISTING_ID,
+      sellerId: OTHER_SELLER_ID,
       status: "published",
     });
 
-    const req = createMockRequest({ listingId: "listing-1" });
+    const req = createMockRequest({ listingId: LISTING_ID });
     await handleMarkAsSold(req);
 
     expect(req.error).toHaveBeenCalledWith(403, "Vous n'êtes pas le propriétaire de cette annonce");
@@ -163,12 +190,12 @@ describe("handleMarkAsSold", () => {
 
   it("should return 400 for invalid transition (draft -> sold)", async () => {
     mockRun.mockResolvedValueOnce({
-      ID: "listing-1",
-      sellerId: "seller-1",
+      ID: LISTING_ID,
+      sellerId: SELLER_ID,
       status: "draft",
     });
 
-    const req = createMockRequest({ listingId: "listing-1" });
+    const req = createMockRequest({ listingId: LISTING_ID });
     await handleMarkAsSold(req);
 
     expect(req.error).toHaveBeenCalledWith(400, expect.stringContaining("Transition invalide"));
@@ -176,12 +203,12 @@ describe("handleMarkAsSold", () => {
 
   it("should return 400 for invalid transition (archived -> sold)", async () => {
     mockRun.mockResolvedValueOnce({
-      ID: "listing-1",
-      sellerId: "seller-1",
+      ID: LISTING_ID,
+      sellerId: SELLER_ID,
       status: "archived",
     });
 
-    const req = createMockRequest({ listingId: "listing-1" });
+    const req = createMockRequest({ listingId: LISTING_ID });
     await handleMarkAsSold(req);
 
     expect(req.error).toHaveBeenCalledWith(400, expect.stringContaining("Transition invalide"));
@@ -191,20 +218,20 @@ describe("handleMarkAsSold", () => {
     const { auditLog } = require("../../../srv/middleware/audit-trail");
 
     mockRun.mockResolvedValueOnce({
-      ID: "listing-1",
-      sellerId: "seller-1",
+      ID: LISTING_ID,
+      sellerId: SELLER_ID,
       status: "published",
     });
-    mockRun.mockResolvedValueOnce(undefined);
+    mockRun.mockResolvedValueOnce(1);
 
-    const req = createMockRequest({ listingId: "listing-1" });
+    const req = createMockRequest({ listingId: LISTING_ID });
     await handleMarkAsSold(req);
 
     expect(auditLog).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "listing.sold",
         targetType: "Listing",
-        targetId: "listing-1",
+        targetId: LISTING_ID,
       }),
     );
   });
@@ -220,29 +247,35 @@ describe("handleArchiveListing", () => {
 
   it("should archive a published listing", async () => {
     mockRun.mockResolvedValueOnce({
-      ID: "listing-1",
-      sellerId: "seller-1",
+      ID: LISTING_ID,
+      sellerId: SELLER_ID,
       status: "published",
     });
-    mockRun.mockResolvedValueOnce(undefined);
+    mockRun.mockResolvedValueOnce(1);
 
-    const req = createMockRequest({ listingId: "listing-1" });
+    const req = createMockRequest({ listingId: LISTING_ID });
     const result = await handleArchiveListing(req);
 
     expect(result.success).toBe(true);
     expect(result.newStatus).toBe("archived");
-    expect(result.listingId).toBe("listing-1");
+    expect(result.listingId).toBe(LISTING_ID);
+  });
+
+  it("should reject invalid UUID format", async () => {
+    const req = createMockRequest({ listingId: "not-a-uuid" });
+    await handleArchiveListing(req);
+    expect(req.error).toHaveBeenCalledWith(400, "Identifiant d'annonce invalide");
   });
 
   it("should archive a sold listing", async () => {
     mockRun.mockResolvedValueOnce({
-      ID: "listing-1",
-      sellerId: "seller-1",
+      ID: LISTING_ID,
+      sellerId: SELLER_ID,
       status: "sold",
     });
-    mockRun.mockResolvedValueOnce(undefined);
+    mockRun.mockResolvedValueOnce(1);
 
-    const req = createMockRequest({ listingId: "listing-1" });
+    const req = createMockRequest({ listingId: LISTING_ID });
     const result = await handleArchiveListing(req);
 
     expect(result.success).toBe(true);
@@ -250,7 +283,7 @@ describe("handleArchiveListing", () => {
   });
 
   it("should return 401 when user is not authenticated", async () => {
-    const req = createMockRequest({ listingId: "listing-1" });
+    const req = createMockRequest({ listingId: LISTING_ID });
     req.user = { id: undefined };
 
     await handleArchiveListing(req);
@@ -261,7 +294,7 @@ describe("handleArchiveListing", () => {
   it("should return 404 when listing does not exist", async () => {
     mockRun.mockResolvedValueOnce(null);
 
-    const req = createMockRequest({ listingId: "nonexistent" });
+    const req = createMockRequest({ listingId: "00000000-0000-0000-0000-000000000000" });
     await handleArchiveListing(req);
 
     expect(req.error).toHaveBeenCalledWith(404, "Annonce introuvable");
@@ -269,12 +302,12 @@ describe("handleArchiveListing", () => {
 
   it("should return 403 when seller does not own the listing", async () => {
     mockRun.mockResolvedValueOnce({
-      ID: "listing-1",
-      sellerId: "other-seller",
+      ID: LISTING_ID,
+      sellerId: OTHER_SELLER_ID,
       status: "published",
     });
 
-    const req = createMockRequest({ listingId: "listing-1" });
+    const req = createMockRequest({ listingId: LISTING_ID });
     await handleArchiveListing(req);
 
     expect(req.error).toHaveBeenCalledWith(403, "Vous n'êtes pas le propriétaire de cette annonce");
@@ -282,12 +315,12 @@ describe("handleArchiveListing", () => {
 
   it("should return 400 for invalid transition (draft -> archived)", async () => {
     mockRun.mockResolvedValueOnce({
-      ID: "listing-1",
-      sellerId: "seller-1",
+      ID: LISTING_ID,
+      sellerId: SELLER_ID,
       status: "draft",
     });
 
-    const req = createMockRequest({ listingId: "listing-1" });
+    const req = createMockRequest({ listingId: LISTING_ID });
     await handleArchiveListing(req);
 
     expect(req.error).toHaveBeenCalledWith(400, expect.stringContaining("Transition invalide"));
@@ -297,20 +330,20 @@ describe("handleArchiveListing", () => {
     const { auditLog } = require("../../../srv/middleware/audit-trail");
 
     mockRun.mockResolvedValueOnce({
-      ID: "listing-1",
-      sellerId: "seller-1",
+      ID: LISTING_ID,
+      sellerId: SELLER_ID,
       status: "published",
     });
-    mockRun.mockResolvedValueOnce(undefined);
+    mockRun.mockResolvedValueOnce(1);
 
-    const req = createMockRequest({ listingId: "listing-1" });
+    const req = createMockRequest({ listingId: LISTING_ID });
     await handleArchiveListing(req);
 
     expect(auditLog).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "listing.archived",
         targetType: "Listing",
-        targetId: "listing-1",
+        targetId: LISTING_ID,
       }),
     );
   });
@@ -328,7 +361,7 @@ describe("handleGetSellerListings", () => {
     // Listings query
     mockRun.mockResolvedValueOnce([
       {
-        ID: "listing-1",
+        ID: LISTING_ID,
         make: "Renault",
         model: "Clio",
         year: 2022,
@@ -343,12 +376,12 @@ describe("handleGetSellerListings", () => {
     ]);
     // Analytics query
     mockRun.mockResolvedValueOnce([
-      { listingId: "listing-1", viewCount: 100, favoriteCount: 10, chatCount: 3 },
+      { listingId: LISTING_ID, viewCount: 100, favoriteCount: 10, chatCount: 3 },
     ]);
     // Photos query
     mockRun.mockResolvedValueOnce([
       {
-        listingId: "listing-1",
+        listingId: LISTING_ID,
         cdnUrl: "https://cdn.example.com/photo.jpg",
         isPrimary: true,
         sortOrder: 0,
@@ -397,7 +430,7 @@ describe("handleGetListingHistory", () => {
   it("should return all non-draft listings with metrics", async () => {
     mockRun.mockResolvedValueOnce([
       {
-        ID: "listing-1",
+        ID: LISTING_ID,
         make: "Peugeot",
         model: "308",
         year: 2023,
@@ -425,19 +458,19 @@ describe("handleGetListingHistory", () => {
     ]);
     // Analytics
     mockRun.mockResolvedValueOnce([
-      { listingId: "listing-1", viewCount: 320, favoriteCount: 25, chatCount: 8 },
+      { listingId: LISTING_ID, viewCount: 320, favoriteCount: 25, chatCount: 8 },
       { listingId: "listing-2", viewCount: 50, favoriteCount: 2, chatCount: 1 },
     ]);
     // Photos
     mockRun.mockResolvedValueOnce([
       {
-        listingId: "listing-1",
+        listingId: LISTING_ID,
         cdnUrl: "https://cdn.example.com/1.jpg",
         isPrimary: true,
         sortOrder: 0,
       },
       {
-        listingId: "listing-1",
+        listingId: LISTING_ID,
         cdnUrl: "https://cdn.example.com/2.jpg",
         isPrimary: false,
         sortOrder: 1,
@@ -475,7 +508,7 @@ describe("handleGetListingHistory", () => {
   it("should handle listings without analytics records", async () => {
     mockRun.mockResolvedValueOnce([
       {
-        ID: "listing-1",
+        ID: LISTING_ID,
         make: "Renault",
         model: "Megane",
         year: 2020,
@@ -512,15 +545,15 @@ describe("onListingStatusChange", () => {
 
     // Trigger a markAsSold to fire the event
     mockRun.mockResolvedValueOnce({
-      ID: "listing-1",
-      sellerId: "seller-1",
+      ID: LISTING_ID,
+      sellerId: SELLER_ID,
       status: "published",
     });
-    mockRun.mockResolvedValueOnce(undefined);
+    mockRun.mockResolvedValueOnce(1);
 
-    const req = createMockRequest({ listingId: "listing-1" });
+    const req = createMockRequest({ listingId: LISTING_ID });
     await handleMarkAsSold(req);
 
-    expect(handler).toHaveBeenCalledWith("listing-1", "seller-1", "sold");
+    expect(handler).toHaveBeenCalledWith(LISTING_ID, SELLER_ID, "sold");
   });
 });
