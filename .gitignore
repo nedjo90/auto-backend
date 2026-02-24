@@ -18,6 +18,9 @@ target/
 *.mtar
 mta_archives/
 
+# Test coverage
+coverage/
+
 # Other
 .DS_Store
 *.orig

@@ -72,7 +72,7 @@ describe("CDS Schema - ConfigDeclarationTemplate (Story 3-7, Task 1)", () => {
   });
 
   it("should have unique constraint on version", () => {
-    expect(declarationCds).toContain("@(assert.unique: [{version}])");
+    expect(declarationCds).toContain("@(assert.unique: {templateVersion: [version]})");
   });
 });
 

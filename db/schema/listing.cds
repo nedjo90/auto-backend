@@ -116,5 +116,5 @@ entity ListingPhoto : cuid, managed {
 
 // ─── Indexes ──────────────────────────────────────────────────────────────
 
-annotate CertifiedField with @(assert.unique: [{listingId, fieldName}]);
-annotate ApiCachedData with @(assert.unique: [{vehicleIdentifier, identifierType, adapterName, isValid}]);
+annotate CertifiedField with @(assert.unique: {listingFieldName: [listingId, fieldName]});
+annotate ApiCachedData with @(assert.unique: {vehicleAdapter: [vehicleIdentifier, identifierType, adapterName, isValid]});

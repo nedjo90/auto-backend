@@ -24,4 +24,4 @@ entity ConfigDeclarationTemplate : cuid, managed {
   legalNotice    : String(2000);
 }
 
-annotate ConfigDeclarationTemplate with @(assert.unique: [{version}]);
+annotate ConfigDeclarationTemplate with @(assert.unique: {templateVersion: [version]});
