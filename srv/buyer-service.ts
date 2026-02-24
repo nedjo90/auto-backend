@@ -10,7 +10,7 @@ export default class BuyerServiceHandler extends cds.ApplicationService {
 
   private handleGetHistoryReport = async (req: cds.Request) => {
     const { listingId } = req.data as { listingId: string };
-    const userId = (req.user as { id: string }).id;
+    const userId = req.user?.id;
 
     if (!userId) {
       return req.error(401, "Rapport disponible - connectez-vous pour consulter");

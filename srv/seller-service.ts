@@ -1549,28 +1549,51 @@ export default class SellerServiceHandler extends cds.ApplicationService {
       LOG.info(`Using cached history report for VIN ${listing.vin}`);
       reportData = cached;
     } else {
-      // Fetch from adapter
-      const adapter = getHistory();
-      reportData = await adapter.getHistory({ vin: listing.vin, plate: listing.plate || undefined });
+      // Fetch from adapter — wrap in try-catch for network/provider errors
+      try {
+        const adapter = getHistory();
+        reportData = await adapter.getHistory({ vin: listing.vin, plate: listing.plate || undefined });
+      } catch (err: unknown) {
+        LOG.error(`History adapter failed for VIN ${listing.vin}:`, err);
+        return req.error(502, "Le fournisseur d'historique est temporairement indisponible");
+      }
 
       // Cache the response
       await setCachedResponse(listing.vin, identifierType, "IHistoryAdapter", reportData);
     }
 
-    // Store the report
+    // Store the report — handle race condition (duplicate INSERT on concurrent requests)
     const reportId = cds.utils.uuid();
     const fetchedAt = new Date().toISOString();
 
-    await cds.run(
-      INSERT.into(entities["HistoryReport"]).entries({
-        ID: reportId,
-        listingId,
-        reportData: JSON.stringify(reportData),
-        source: reportData.provider.providerName,
-        fetchedAt,
-        reportVersion: reportData.provider.providerVersion,
-      }),
-    );
+    try {
+      await cds.run(
+        INSERT.into(entities["HistoryReport"]).entries({
+          ID: reportId,
+          listingId,
+          reportData: JSON.stringify(reportData),
+          source: reportData.provider.providerName,
+          fetchedAt,
+          reportVersion: reportData.provider.providerVersion,
+        }),
+      );
+    } catch (err: unknown) {
+      // Unique constraint violation — another concurrent request already inserted
+      const existing = await cds.run(
+        SELECT.one.from(entities["HistoryReport"]).where({ listingId }),
+      );
+      if (existing) {
+        LOG.info(`Returning concurrently-created history report for listing ${listingId}`);
+        return {
+          reportId: existing.ID,
+          source: existing.source,
+          fetchedAt: existing.fetchedAt,
+          reportVersion: existing.reportVersion,
+          reportData: existing.reportData,
+        };
+      }
+      throw err;
+    }
 
     LOG.info(`History report ${reportId} created for listing ${listingId} (source: ${reportData.provider.providerName})`);
 

@@ -7,9 +7,6 @@ service BuyerService {
   @restrict: [{ grant: 'READ', where: 'status = ''published''' }]
   entity Listings as projection on auto.Listing;
 
-  @readonly
-  entity HistoryReports as projection on auto.HistoryReport;
-
   /** Get the history report for a published listing (authenticated buyers only) */
   action getHistoryReport(
     listingId : String(36) not null

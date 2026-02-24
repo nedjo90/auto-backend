@@ -200,6 +200,7 @@ export class MockHistoryAdapter implements IHistoryAdapter {
       mileageRecords: data.mileageRecords.map((r) => ({ ...r })),
       accidents: data.accidents.map((a) => ({ ...a })),
       registrationHistory: data.registrationHistory.map((r) => ({ ...r })),
+      provider: { ...data.provider },
     };
   }
 }

@@ -130,9 +130,6 @@ service SellerService {
     success       : Boolean;
   };
 
-  @readonly
-  entity HistoryReports as projection on auto.HistoryReport;
-
   /** Fetch vehicle history report for a listing */
   action fetchHistoryReport(
     listingId : String(36) not null

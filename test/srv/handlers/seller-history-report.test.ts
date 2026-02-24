@@ -454,4 +454,61 @@ describe("SellerService - fetchHistoryReport", () => {
     // Third cds.run call is INSERT
     expect(mockRun).toHaveBeenCalledTimes(3);
   });
+
+  it("should return 502 when adapter throws an error", async () => {
+    // SELECT listing
+    mockRun.mockResolvedValueOnce({
+      ID: "listing-1",
+      sellerId: "test-user-1",
+      vin: "UNKNOWN_VIN_12345",
+      plate: null,
+    });
+    // SELECT existing report (none)
+    mockRun.mockResolvedValueOnce(null);
+
+    mockGetCachedResponse.mockResolvedValueOnce(null);
+    mockGetHistory.mockRejectedValueOnce(new Error("No history found for VIN: UNKNOWN_VIN_12345"));
+
+    const req = createMockRequest({ listingId: "listing-1" });
+    await handleFetchHistoryReport(req);
+
+    expect(req.error).toHaveBeenCalledWith(
+      502,
+      "Le fournisseur d'historique est temporairement indisponible",
+    );
+    // Should NOT insert anything or log audit
+    expect(mockRun).toHaveBeenCalledTimes(2); // only listing + existing report SELECTs
+    expect(mockAuditLog).not.toHaveBeenCalled();
+  });
+
+  it("should handle duplicate INSERT (race condition) by returning existing report", async () => {
+    // SELECT listing
+    mockRun.mockResolvedValueOnce({
+      ID: "listing-1",
+      sellerId: "test-user-1",
+      vin: "VF1RFB00X56789012",
+      plate: "AB-123-CD",
+    });
+    // SELECT existing report (none — race: another request hasn't finished yet)
+    mockRun.mockResolvedValueOnce(null);
+    // INSERT fails with unique constraint violation
+    mockRun.mockRejectedValueOnce(new Error("SQLITE_CONSTRAINT: UNIQUE constraint failed"));
+    // Re-fetch finds the concurrently-created report
+    mockRun.mockResolvedValueOnce({
+      ID: "concurrent-report-id",
+      source: "mock",
+      fetchedAt: "2026-02-24T10:00:00.000Z",
+      reportVersion: "1.0.0",
+      reportData: JSON.stringify(MOCK_HISTORY_RESPONSE),
+    });
+
+    mockGetCachedResponse.mockResolvedValueOnce(null);
+    mockGetHistory.mockResolvedValueOnce(MOCK_HISTORY_RESPONSE);
+
+    const req = createMockRequest({ listingId: "listing-1" });
+    const result = await handleFetchHistoryReport(req);
+
+    expect(result.reportId).toBe("concurrent-report-id");
+    expect(req.error).not.toHaveBeenCalled();
+  });
 });
