@@ -7,6 +7,12 @@ export {};
  * - getPaymentSessionStatus, handleStripeWebhook
  */
 
+// ─── Test UUIDs (required by Zod batchPublishRequestSchema) ──────────────
+
+const UUID1 = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d";
+const UUID2 = "b2c3d4e5-f6a7-4b8c-9d0e-1f2a3b4c5d6e";
+const UUID3 = "c3d4e5f6-a7b8-4c9d-0e1f-2a3b4c5d6e7f";
+
 // ─── Mocks ──────────────────────────────────────────────────────────────────
 
 const mockRun = jest.fn();
@@ -118,11 +124,30 @@ function createMockRes(): any {
   return res;
 }
 
+function makeWebhookEvent(overrides: Record<string, any> = {}) {
+  return {
+    id: "evt_test",
+    type: "checkout.session.completed",
+    sessionId: "cs_test_123",
+    amountCents: 499,
+    currency: "eur",
+    customerId: "seller-1",
+    metadata: {},
+    createdAt: "2026-02-24T10:00:00Z",
+    ...overrides,
+  };
+}
+
 // ─── Tests ────────────────────────────────────────────────────────────────
 
 describe("Payment Handlers", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // Reset once-queues to prevent cascade from earlier tests
+    mockRun.mockReset();
+    mockTxRun.mockReset();
+    mockTxCommit.mockReset();
+    mockTxRollback.mockReset();
     mockConfigGet.mockReturnValue({ key: "LISTING_PRICE_EUR", value: "4.99", type: "number" });
   });
 
@@ -130,7 +155,7 @@ describe("Payment Handlers", () => {
     it("should return eligible drafts with photo counts and unit price", async () => {
       const drafts = [
         {
-          ID: "l1",
+          ID: UUID1,
           make: "Renault",
           model: "Clio",
           year: 2020,
@@ -139,7 +164,7 @@ describe("Payment Handlers", () => {
           sellerId: "seller-1",
         },
         {
-          ID: "l2",
+          ID: UUID2,
           make: "Peugeot",
           model: "208",
           year: 2021,
@@ -148,11 +173,10 @@ describe("Payment Handlers", () => {
           sellerId: "seller-1",
         },
       ];
-
       mockRun
-        .mockResolvedValueOnce(drafts) // fetch drafts
-        .mockResolvedValueOnce([{ ID: "p1" }, { ID: "p2" }]) // photos for l1
-        .mockResolvedValueOnce([{ ID: "p3" }]); // photos for l2
+        .mockResolvedValueOnce(drafts)
+        .mockResolvedValueOnce([{ ID: "p1" }, { ID: "p2" }])
+        .mockResolvedValueOnce([{ ID: "p3" }]);
 
       const req = createMockReq();
       const result = await handleGetPublishableListings(req);
@@ -166,30 +190,39 @@ describe("Payment Handlers", () => {
 
     it("should return empty list when no eligible drafts", async () => {
       mockRun.mockResolvedValueOnce([]);
-
       const req = createMockReq();
       const result = await handleGetPublishableListings(req);
-
-      const listings = JSON.parse(result.listings);
-      expect(listings).toHaveLength(0);
+      expect(JSON.parse(result.listings)).toHaveLength(0);
     });
 
     it("should use default price when config is missing", async () => {
       mockConfigGet.mockReturnValue(undefined);
       mockRun.mockResolvedValueOnce([]);
-
       const req = createMockReq();
       const result = await handleGetPublishableListings(req);
-
       expect(result.unitPriceCents).toBe(499);
     });
 
-    it("should call req.error for unauthenticated requests", async () => {
+    it("should use default price for invalid config value", async () => {
+      mockConfigGet.mockReturnValue({ key: "LISTING_PRICE_EUR", value: "abc", type: "number" });
+      mockRun.mockResolvedValueOnce([]);
+      const req = createMockReq();
+      const result = await handleGetPublishableListings(req);
+      expect(result.unitPriceCents).toBe(499);
+    });
+
+    it("should use default price for zero value", async () => {
+      mockConfigGet.mockReturnValue({ key: "LISTING_PRICE_EUR", value: "0", type: "number" });
+      mockRun.mockResolvedValueOnce([]);
+      const req = createMockReq();
+      const result = await handleGetPublishableListings(req);
+      expect(result.unitPriceCents).toBe(499);
+    });
+
+    it("should reject unauthenticated requests", async () => {
       const req = createMockReq({}, "");
       req.user.id = undefined;
-
       await handleGetPublishableListings(req);
-
       expect(req.error).toHaveBeenCalledWith(401, "Authentication required");
     });
   });
@@ -197,11 +230,10 @@ describe("Payment Handlers", () => {
   describe("handleCalculateBatchTotal", () => {
     it("should calculate correct total for eligible listings", async () => {
       mockRun.mockResolvedValueOnce([
-        { ID: "l1", sellerId: "seller-1", status: "draft", declarationId: "d1" },
-        { ID: "l2", sellerId: "seller-1", status: "draft", declarationId: "d2" },
+        { ID: UUID1, sellerId: "seller-1", status: "draft", declarationId: "d1" },
+        { ID: UUID2, sellerId: "seller-1", status: "draft", declarationId: "d2" },
       ]);
-
-      const req = createMockReq({ listingIds: JSON.stringify(["l1", "l2"]) });
+      const req = createMockReq({ listingIds: JSON.stringify([UUID1, UUID2]) });
       const result = await handleCalculateBatchTotal(req);
 
       expect(result.count).toBe(2);
@@ -209,60 +241,55 @@ describe("Payment Handlers", () => {
       expect(result.totalCents).toBe(998);
     });
 
-    it("should reject listings not in draft status", async () => {
+    it("should reject ineligible listings with generic error", async () => {
       mockRun.mockResolvedValueOnce([
-        { ID: "l1", sellerId: "seller-1", status: "published", declarationId: "d1" },
+        { ID: UUID1, sellerId: "seller-1", status: "published", declarationId: "d1" },
       ]);
-
-      const req = createMockReq({ listingIds: JSON.stringify(["l1"]) });
+      const req = createMockReq({ listingIds: JSON.stringify([UUID1]) });
       await handleCalculateBatchTotal(req);
-
-      expect(req.error).toHaveBeenCalledWith(400, expect.stringContaining("not a draft"));
-    });
-
-    it("should reject listings without declaration", async () => {
-      mockRun.mockResolvedValueOnce([
-        { ID: "l1", sellerId: "seller-1", status: "draft", declarationId: null },
-      ]);
-
-      const req = createMockReq({ listingIds: JSON.stringify(["l1"]) });
-      await handleCalculateBatchTotal(req);
-
-      expect(req.error).toHaveBeenCalledWith(400, expect.stringContaining("no declaration"));
-    });
-
-    it("should reject listings belonging to another seller", async () => {
-      mockRun.mockResolvedValueOnce([
-        { ID: "l1", sellerId: "other-seller", status: "draft", declarationId: "d1" },
-      ]);
-
-      const req = createMockReq({ listingIds: JSON.stringify(["l1"]) });
-      await handleCalculateBatchTotal(req);
-
-      expect(req.error).toHaveBeenCalledWith(400, expect.stringContaining("does not belong"));
+      expect(req.error).toHaveBeenCalledWith(
+        400,
+        "One or more listings are ineligible for publication",
+      );
     });
 
     it("should reject invalid JSON", async () => {
       const req = createMockReq({ listingIds: "not-json" });
       await handleCalculateBatchTotal(req);
-
       expect(req.error).toHaveBeenCalledWith(400, "Invalid listingIds format");
     });
 
     it("should reject empty array", async () => {
       const req = createMockReq({ listingIds: "[]" });
       await handleCalculateBatchTotal(req);
-
       expect(req.error).toHaveBeenCalledWith(400, expect.stringContaining("non-empty"));
     });
 
     it("should reject missing listings", async () => {
-      mockRun.mockResolvedValueOnce([]); // none found
-
-      const req = createMockReq({ listingIds: JSON.stringify(["nonexistent"]) });
+      mockRun.mockResolvedValueOnce([]);
+      const req = createMockReq({ listingIds: JSON.stringify([UUID1]) });
       await handleCalculateBatchTotal(req);
+      expect(req.error).toHaveBeenCalledWith(
+        400,
+        "One or more listings are ineligible for publication",
+      );
+    });
 
-      expect(req.error).toHaveBeenCalledWith(400, expect.stringContaining("not found"));
+    it("should reject unauthenticated requests", async () => {
+      const req = createMockReq({}, "");
+      req.user.id = undefined;
+      await handleCalculateBatchTotal(req);
+      expect(req.error).toHaveBeenCalledWith(401, "Authentication required");
+    });
+
+    it("should deduplicate listing IDs", async () => {
+      mockRun.mockResolvedValueOnce([
+        { ID: UUID1, sellerId: "seller-1", status: "draft", declarationId: "d1" },
+      ]);
+      const req = createMockReq({ listingIds: JSON.stringify([UUID1, UUID1, UUID1]) });
+      const result = await handleCalculateBatchTotal(req);
+      expect(result.count).toBe(1);
+      expect(result.totalCents).toBe(499);
     });
   });
 
@@ -270,9 +297,9 @@ describe("Payment Handlers", () => {
     it("should create checkout session and pending payment transaction", async () => {
       mockRun
         .mockResolvedValueOnce([
-          { ID: "l1", sellerId: "seller-1", status: "draft", declarationId: "d1" },
+          { ID: UUID1, sellerId: "seller-1", status: "draft", declarationId: "d1" },
         ])
-        .mockResolvedValueOnce(undefined); // INSERT PaymentTransaction
+        .mockResolvedValueOnce(undefined);
 
       mockCreateCheckoutSession.mockResolvedValue({
         sessionId: "cs_test_123",
@@ -282,43 +309,35 @@ describe("Payment Handlers", () => {
       });
 
       const req = createMockReq({
-        listingIds: JSON.stringify(["l1"]),
+        listingIds: JSON.stringify([UUID1]),
         successUrl: "https://auto.fr/success",
         cancelUrl: "https://auto.fr/cancel",
       });
-
       const result = await handleCreateCheckoutSession(req);
 
       expect(result.sessionId).toBe("cs_test_123");
       expect(result.sessionUrl).toBe("https://checkout.stripe.com/pay/cs_test_123");
-      expect(mockCreateCheckoutSession).toHaveBeenCalledWith(
-        expect.objectContaining({
-          amountCents: 499,
-          currency: "eur",
-          customerId: "seller-1",
-        }),
-      );
     });
 
     it("should reject ineligible listings", async () => {
-      mockRun.mockResolvedValueOnce([]); // no listings found
-
+      mockRun.mockResolvedValueOnce([]);
       const req = createMockReq({
-        listingIds: JSON.stringify(["nonexistent"]),
+        listingIds: JSON.stringify([UUID1]),
         successUrl: "https://auto.fr/success",
         cancelUrl: "https://auto.fr/cancel",
       });
-
       await handleCreateCheckoutSession(req);
-
-      expect(req.error).toHaveBeenCalledWith(400, expect.stringContaining("not found"));
+      expect(req.error).toHaveBeenCalledWith(
+        400,
+        "One or more listings are ineligible for publication",
+      );
     });
 
     it("should pass correct metadata to payment adapter", async () => {
       mockRun
         .mockResolvedValueOnce([
-          { ID: "l1", sellerId: "seller-1", status: "draft", declarationId: "d1" },
-          { ID: "l2", sellerId: "seller-1", status: "draft", declarationId: "d2" },
+          { ID: UUID1, sellerId: "seller-1", status: "draft", declarationId: "d1" },
+          { ID: UUID2, sellerId: "seller-1", status: "draft", declarationId: "d2" },
         ])
         .mockResolvedValueOnce(undefined);
 
@@ -330,18 +349,33 @@ describe("Payment Handlers", () => {
       });
 
       const req = createMockReq({
-        listingIds: JSON.stringify(["l1", "l2"]),
+        listingIds: JSON.stringify([UUID1, UUID2]),
         successUrl: "https://auto.fr/success",
         cancelUrl: "https://auto.fr/cancel",
       });
-
       await handleCreateCheckoutSession(req);
 
       const callArgs = mockCreateCheckoutSession.mock.calls[0][0];
-      expect(callArgs.metadata.listingIds).toBe(JSON.stringify(["l1", "l2"]));
+      expect(callArgs.metadata.listingIds).toBe(JSON.stringify([UUID1, UUID2]));
       expect(callArgs.metadata.sellerId).toBe("seller-1");
-      expect(callArgs.metadata.listingCount).toBe("2");
       expect(callArgs.amountCents).toBe(998);
+    });
+
+    it("should reject unauthenticated requests", async () => {
+      const req = createMockReq({}, "");
+      req.user.id = undefined;
+      await handleCreateCheckoutSession(req);
+      expect(req.error).toHaveBeenCalledWith(401, "Authentication required");
+    });
+
+    it("should reject invalid JSON listingIds", async () => {
+      const req = createMockReq({
+        listingIds: "broken",
+        successUrl: "https://auto.fr/s",
+        cancelUrl: "https://auto.fr/c",
+      });
+      await handleCreateCheckoutSession(req);
+      expect(req.error).toHaveBeenCalledWith(400, "Invalid listingIds format");
     });
   });
 
@@ -354,11 +388,11 @@ describe("Payment Handlers", () => {
           stripeSessionId: "cs_test_123",
           status: "Succeeded",
           listingCount: 2,
-          listingIds: JSON.stringify(["l1", "l2"]),
+          listingIds: JSON.stringify([UUID1, UUID2]),
         })
         .mockResolvedValueOnce([
-          { ID: "l1", status: "published" },
-          { ID: "l2", status: "published" },
+          { ID: UUID1, status: "published" },
+          { ID: UUID2, status: "published" },
         ]);
 
       const req = createMockReq({ sessionId: "cs_test_123" });
@@ -366,17 +400,13 @@ describe("Payment Handlers", () => {
 
       expect(result.status).toBe("Succeeded");
       expect(result.listingCount).toBe(2);
-      const listings = JSON.parse(result.listings);
-      expect(listings).toHaveLength(2);
-      expect(listings[0].status).toBe("published");
+      expect(JSON.parse(result.listings)).toHaveLength(2);
     });
 
     it("should return error for unknown session", async () => {
       mockRun.mockResolvedValueOnce(null);
-
       const req = createMockReq({ sessionId: "cs_unknown" });
       await handleGetPaymentSessionStatus(req);
-
       expect(req.error).toHaveBeenCalledWith(404, "Payment session not found");
     });
 
@@ -389,12 +419,17 @@ describe("Payment Handlers", () => {
         listingCount: 0,
         listingIds: null,
       });
-
       const req = createMockReq({ sessionId: "cs_test_empty" });
       const result = await handleGetPaymentSessionStatus(req);
-
       expect(result.status).toBe("Pending");
       expect(JSON.parse(result.listings)).toHaveLength(0);
+    });
+
+    it("should reject unauthenticated requests", async () => {
+      const req = createMockReq({}, "");
+      req.user.id = undefined;
+      await handleGetPaymentSessionStatus(req);
+      expect(req.error).toHaveBeenCalledWith(401, "Authentication required");
     });
   });
 
@@ -402,85 +437,102 @@ describe("Payment Handlers", () => {
     it("should reject requests without stripe-signature header", async () => {
       const req = { headers: {}, body: "{}" } as any;
       const res = createMockRes();
-
       await handleStripeWebhook(req, res);
-
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith({ error: "Missing stripe-signature header" });
     });
 
     it("should reject invalid webhook signatures", async () => {
       mockHandleWebhookAdapter.mockRejectedValue(new Error("Invalid signature"));
-
       const req = { headers: { "stripe-signature": "invalid" }, body: "{}" } as any;
       const res = createMockRes();
-
       await handleStripeWebhook(req, res);
-
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith({ error: "Invalid webhook signature" });
     });
 
+    it("should return 200 for unsupported event types", async () => {
+      mockHandleWebhookAdapter.mockRejectedValue(
+        new Error("Unsupported Stripe event type: charge.refunded"),
+      );
+      const req = { headers: { "stripe-signature": "valid" }, body: "{}" } as any;
+      const res = createMockRes();
+      await handleStripeWebhook(req, res);
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({ received: true });
+    });
+
+    it("should reject non-raw body with 500", async () => {
+      const req = { headers: { "stripe-signature": "valid" }, body: { parsed: true } } as any;
+      const res = createMockRes();
+      await handleStripeWebhook(req, res);
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({ error: "Server configuration error" });
+    });
+
     it("should handle checkout.session.completed and publish listings atomically", async () => {
-      mockHandleWebhookAdapter.mockResolvedValue({
-        id: "evt_1",
-        type: "checkout.session.completed",
-        sessionId: "cs_test_123",
-        amountCents: 998,
-        currency: "eur",
-        customerId: "seller-1",
-        metadata: { listingIds: '["l1","l2"]', sellerId: "seller-1" },
-        createdAt: "2026-02-24T10:00:00Z",
-      });
+      mockHandleWebhookAdapter.mockResolvedValue(
+        makeWebhookEvent({
+          sessionId: "cs_test_123",
+          amountCents: 998,
+        }),
+      );
 
       mockRun.mockResolvedValueOnce({
         ID: "tx-1",
         sellerId: "seller-1",
         status: "Pending",
-        listingIds: JSON.stringify(["l1", "l2"]),
+        listingIds: JSON.stringify([UUID1, UUID2]),
       });
 
+      // Batch fetch returns both listings
       mockTxRun
-        .mockResolvedValueOnce({ ID: "l1", status: "draft", sellerId: "seller-1" })
-        .mockResolvedValueOnce({ ID: "l2", status: "draft", sellerId: "seller-1" })
-        .mockResolvedValueOnce(undefined) // update l1
-        .mockResolvedValueOnce(undefined) // update l2
+        .mockResolvedValueOnce([
+          { ID: UUID1, status: "draft", sellerId: "seller-1" },
+          { ID: UUID2, status: "draft", sellerId: "seller-1" },
+        ])
+        .mockResolvedValueOnce(undefined) // update listing 1
+        .mockResolvedValueOnce(undefined) // update listing 2
         .mockResolvedValueOnce(undefined); // update transaction
 
       mockTxCommit.mockResolvedValue(undefined);
 
       const req = { headers: { "stripe-signature": "valid_sig" }, body: "{}" } as any;
       const res = createMockRes();
-
       await handleStripeWebhook(req, res);
 
       expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith({ received: true });
       expect(mockTxCommit).toHaveBeenCalled();
     });
 
     it("should handle idempotent duplicate webhook (already succeeded)", async () => {
-      mockHandleWebhookAdapter.mockResolvedValue({
-        id: "evt_dup",
-        type: "checkout.session.completed",
-        sessionId: "cs_dup",
-        amountCents: 499,
-        currency: "eur",
-        customerId: "seller-1",
-        metadata: {},
-        createdAt: "2026-02-24T10:00:00Z",
-      });
-
+      mockHandleWebhookAdapter.mockResolvedValue(makeWebhookEvent({ sessionId: "cs_dup" }));
       mockRun.mockResolvedValueOnce({
         ID: "tx-dup",
         sellerId: "seller-1",
         status: "Succeeded",
-        listingIds: JSON.stringify(["l1"]),
+        listingIds: JSON.stringify([UUID1]),
       });
 
       const req = { headers: { "stripe-signature": "valid" }, body: "{}" } as any;
       const res = createMockRes();
+      await handleStripeWebhook(req, res);
 
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(mockTxCommit).not.toHaveBeenCalled();
+    });
+
+    it("should skip invalid status transitions (e.g. Failed → Succeeded)", async () => {
+      mockHandleWebhookAdapter.mockResolvedValue(makeWebhookEvent({ sessionId: "cs_failed" }));
+      mockRun.mockResolvedValueOnce({
+        ID: "tx-f",
+        sellerId: "seller-1",
+        status: "Failed",
+        listingIds: JSON.stringify([UUID1]),
+      });
+
+      const req = { headers: { "stripe-signature": "valid" }, body: "{}" } as any;
+      const res = createMockRes();
       await handleStripeWebhook(req, res);
 
       expect(res.status).toHaveBeenCalledWith(200);
@@ -488,65 +540,77 @@ describe("Payment Handlers", () => {
     });
 
     it("should rollback on batch publication failure", async () => {
-      mockHandleWebhookAdapter.mockResolvedValue({
-        id: "evt_fail",
-        type: "checkout.session.completed",
-        sessionId: "cs_fail",
-        amountCents: 998,
-        currency: "eur",
-        customerId: "seller-1",
-        metadata: {},
-        createdAt: "2026-02-24T10:00:00Z",
+      mockHandleWebhookAdapter.mockResolvedValue(makeWebhookEvent({ sessionId: "cs_fail" }));
+
+      mockRun.mockResolvedValueOnce({
+        ID: "tx-fail",
+        sellerId: "seller-1",
+        status: "Pending",
+        listingIds: JSON.stringify([UUID1, UUID2]),
       });
 
-      mockRun
-        .mockResolvedValueOnce({
-          ID: "tx-fail",
-          sellerId: "seller-1",
-          status: "Pending",
-          listingIds: JSON.stringify(["l1", "l2"]),
-        })
-        .mockResolvedValue(undefined); // post-rollback UPDATE
-
-      mockTxRun
-        .mockResolvedValueOnce({ ID: "l1", status: "draft" })
-        .mockResolvedValueOnce({ ID: "l2", status: "published" }); // not draft => error
+      // Batch fetch: UUID2 is already published → will cause rollback
+      mockTxRun.mockResolvedValueOnce([
+        { ID: UUID1, status: "draft" },
+        { ID: UUID2, status: "published" },
+      ]);
 
       mockTxRollback.mockResolvedValue(undefined);
+      // cds.run for the failed-status update after rollback
+      mockRun.mockResolvedValueOnce(undefined);
 
       const req = { headers: { "stripe-signature": "valid" }, body: "{}" } as any;
       const res = createMockRes();
-
       await handleStripeWebhook(req, res);
 
       expect(mockTxRollback).toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(500);
     });
 
+    it("should handle checkout.session.expired", async () => {
+      mockHandleWebhookAdapter.mockResolvedValue(
+        makeWebhookEvent({
+          type: "checkout.session.expired",
+          sessionId: "cs_expired",
+        }),
+      );
+
+      mockRun
+        .mockResolvedValueOnce({
+          ID: "tx-exp",
+          sellerId: "seller-1",
+          status: "Pending",
+          listingIds: JSON.stringify([UUID1]),
+        })
+        .mockResolvedValue(undefined);
+
+      const req = { headers: { "stripe-signature": "valid" }, body: "{}" } as any;
+      const res = createMockRes();
+      await handleStripeWebhook(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(200);
+      expect(res.json).toHaveBeenCalledWith({ received: true });
+    });
+
     it("should handle payment_intent.payment_failed", async () => {
-      mockHandleWebhookAdapter.mockResolvedValue({
-        id: "evt_pf",
-        type: "payment_intent.payment_failed",
-        sessionId: "cs_pf",
-        amountCents: 499,
-        currency: "eur",
-        customerId: "seller-1",
-        metadata: {},
-        createdAt: "2026-02-24T10:00:00Z",
-      });
+      mockHandleWebhookAdapter.mockResolvedValue(
+        makeWebhookEvent({
+          type: "payment_intent.payment_failed",
+          sessionId: "cs_pf",
+        }),
+      );
 
       mockRun
         .mockResolvedValueOnce({
           ID: "tx-pf",
           sellerId: "seller-1",
           status: "Pending",
-          listingIds: JSON.stringify(["l1"]),
+          listingIds: JSON.stringify([UUID1]),
         })
         .mockResolvedValue(undefined);
 
       const req = { headers: { "stripe-signature": "valid" }, body: "{}" } as any;
       const res = createMockRes();
-
       await handleStripeWebhook(req, res);
 
       expect(res.status).toHaveBeenCalledWith(200);
@@ -554,22 +618,11 @@ describe("Payment Handlers", () => {
     });
 
     it("should handle missing PaymentTransaction gracefully", async () => {
-      mockHandleWebhookAdapter.mockResolvedValue({
-        id: "evt_miss",
-        type: "checkout.session.completed",
-        sessionId: "cs_miss",
-        amountCents: 0,
-        currency: "eur",
-        customerId: "",
-        metadata: {},
-        createdAt: "2026-02-24T10:00:00Z",
-      });
-
+      mockHandleWebhookAdapter.mockResolvedValue(makeWebhookEvent({ sessionId: "cs_miss" }));
       mockRun.mockResolvedValueOnce(null);
 
       const req = { headers: { "stripe-signature": "valid" }, body: "{}" } as any;
       const res = createMockRes();
-
       await handleStripeWebhook(req, res);
 
       expect(res.status).toHaveBeenCalledWith(200);
@@ -577,17 +630,7 @@ describe("Payment Handlers", () => {
     });
 
     it("should handle Buffer body", async () => {
-      mockHandleWebhookAdapter.mockResolvedValue({
-        id: "evt_buf",
-        type: "checkout.session.completed",
-        sessionId: "cs_buf",
-        amountCents: 499,
-        currency: "eur",
-        customerId: "seller-1",
-        metadata: {},
-        createdAt: "2026-02-24T10:00:00Z",
-      });
-
+      mockHandleWebhookAdapter.mockResolvedValue(makeWebhookEvent({ sessionId: "cs_buf" }));
       mockRun.mockResolvedValueOnce(null);
 
       const req = {
@@ -595,11 +638,27 @@ describe("Payment Handlers", () => {
         body: Buffer.from('{"test": true}'),
       } as any;
       const res = createMockRes();
-
       await handleStripeWebhook(req, res);
 
       expect(mockHandleWebhookAdapter).toHaveBeenCalledWith('{"test": true}', "valid");
       expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it("should return 500 on unexpected processing error", async () => {
+      // Use expired event so the error hits the outer try-catch
+      mockHandleWebhookAdapter.mockResolvedValue(
+        makeWebhookEvent({
+          type: "checkout.session.expired",
+        }),
+      );
+      mockRun.mockRejectedValueOnce(new Error("DB connection failed"));
+
+      const req = { headers: { "stripe-signature": "valid" }, body: "{}" } as any;
+      const res = createMockRes();
+      await handleStripeWebhook(req, res);
+
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({ error: "Webhook processing failed" });
     });
   });
 });

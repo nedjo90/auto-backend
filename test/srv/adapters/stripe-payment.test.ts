@@ -157,7 +157,7 @@ describe("StripePaymentAdapter", () => {
   });
 
   describe("handleWebhook", () => {
-    const makeStripeEvent = (type: string, session: Record<string, any> = {}) => ({
+    const makeCheckoutSessionEvent = (type: string, session: Record<string, any> = {}) => ({
       id: "evt_test_123",
       type,
       created: 1700000000,
@@ -173,8 +173,27 @@ describe("StripePaymentAdapter", () => {
       },
     });
 
+    const makePaymentIntentEvent = (type: string, intent: Record<string, any> = {}) => ({
+      id: "evt_test_456",
+      type,
+      created: 1700000000,
+      data: {
+        object: {
+          id: "pi_test_intent",
+          amount: 1497,
+          currency: "eur",
+          metadata: {
+            sessionId: "cs_test_session",
+            customerId: "seller-123",
+            sellerId: "seller-123",
+          },
+          ...intent,
+        },
+      },
+    });
+
     it("should validate webhook signature and return WebhookEvent for checkout.session.completed", async () => {
-      const stripeEvent = makeStripeEvent("checkout.session.completed");
+      const stripeEvent = makeCheckoutSessionEvent("checkout.session.completed");
       mockConstructEvent.mockReturnValue(stripeEvent);
 
       const result = await adapter.handleWebhook('{"payload":"data"}', "sig_test");
@@ -197,31 +216,35 @@ describe("StripePaymentAdapter", () => {
     });
 
     it("should handle checkout.session.expired event", async () => {
-      const stripeEvent = makeStripeEvent("checkout.session.expired");
+      const stripeEvent = makeCheckoutSessionEvent("checkout.session.expired");
       mockConstructEvent.mockReturnValue(stripeEvent);
 
       const result = await adapter.handleWebhook("{}", "sig");
       expect(result.type).toBe("checkout.session.expired");
+      expect(result.sessionId).toBe("cs_test_session");
     });
 
-    it("should handle payment_intent.succeeded event", async () => {
-      const stripeEvent = makeStripeEvent("payment_intent.succeeded");
+    it("should handle payment_intent.succeeded event with metadata sessionId", async () => {
+      const stripeEvent = makePaymentIntentEvent("payment_intent.succeeded");
       mockConstructEvent.mockReturnValue(stripeEvent);
 
       const result = await adapter.handleWebhook("{}", "sig");
       expect(result.type).toBe("payment_intent.succeeded");
+      expect(result.sessionId).toBe("cs_test_session");
+      expect(result.amountCents).toBe(1497);
     });
 
-    it("should handle payment_intent.payment_failed event", async () => {
-      const stripeEvent = makeStripeEvent("payment_intent.payment_failed");
+    it("should handle payment_intent.payment_failed event with metadata sessionId", async () => {
+      const stripeEvent = makePaymentIntentEvent("payment_intent.payment_failed");
       mockConstructEvent.mockReturnValue(stripeEvent);
 
       const result = await adapter.handleWebhook("{}", "sig");
       expect(result.type).toBe("payment_intent.payment_failed");
+      expect(result.sessionId).toBe("cs_test_session");
     });
 
     it("should throw on unsupported event types", async () => {
-      const stripeEvent = makeStripeEvent("charge.refunded");
+      const stripeEvent = makeCheckoutSessionEvent("charge.refunded");
       mockConstructEvent.mockReturnValue(stripeEvent);
 
       await expect(adapter.handleWebhook("{}", "sig")).rejects.toThrow(
@@ -248,7 +271,7 @@ describe("StripePaymentAdapter", () => {
     });
 
     it("should handle missing session fields gracefully", async () => {
-      const stripeEvent = makeStripeEvent("checkout.session.completed", {
+      const stripeEvent = makeCheckoutSessionEvent("checkout.session.completed", {
         id: "",
         amount_total: null,
         currency: null,

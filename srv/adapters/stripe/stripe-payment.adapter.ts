@@ -58,29 +58,47 @@ export class StripePaymentAdapter implements IPaymentAdapter {
 
     const event = this.stripe.webhooks.constructEvent(payload, signature, this.webhookSecret);
 
-    const eventTypeMap: Record<string, WebhookEventType> = {
+    const checkoutSessionTypes: Record<string, WebhookEventType> = {
       "checkout.session.completed": "checkout.session.completed",
       "checkout.session.expired": "checkout.session.expired",
+    };
+
+    const paymentIntentTypes: Record<string, WebhookEventType> = {
       "payment_intent.succeeded": "payment_intent.succeeded",
       "payment_intent.payment_failed": "payment_intent.payment_failed",
     };
 
-    const mappedType = eventTypeMap[event.type];
-    if (!mappedType) {
-      throw new Error(`Unsupported Stripe event type: ${event.type}`);
+    const createdAt = new Date(event.created * 1000).toISOString();
+
+    if (checkoutSessionTypes[event.type]) {
+      const session = event.data.object as Stripe.Checkout.Session;
+      return {
+        id: event.id,
+        type: checkoutSessionTypes[event.type],
+        sessionId: session.id || "",
+        amountCents: session.amount_total || 0,
+        currency: session.currency || "eur",
+        customerId: session.client_reference_id || session.metadata?.customerId || "",
+        metadata: (session.metadata as Record<string, string>) || {},
+        createdAt,
+      };
     }
 
-    const session = event.data.object as Stripe.Checkout.Session;
+    if (paymentIntentTypes[event.type]) {
+      const intent = event.data.object as Stripe.PaymentIntent;
+      return {
+        id: event.id,
+        type: paymentIntentTypes[event.type],
+        sessionId: intent.metadata?.sessionId || "",
+        amountCents: intent.amount || 0,
+        currency: intent.currency || "eur",
+        customerId: intent.metadata?.customerId || "",
+        metadata: (intent.metadata as Record<string, string>) || {},
+        createdAt,
+      };
+    }
 
-    return {
-      id: event.id,
-      type: mappedType,
-      sessionId: session.id || "",
-      amountCents: session.amount_total || 0,
-      currency: session.currency || "eur",
-      customerId: session.client_reference_id || session.metadata?.customerId || "",
-      metadata: (session.metadata as Record<string, string>) || {},
-      createdAt: new Date(event.created * 1000).toISOString(),
-    };
+    // Unknown event type — return a safe no-op event for 200 acknowledgment
+    throw new Error(`Unsupported Stripe event type: ${event.type}`);
   }
 }
