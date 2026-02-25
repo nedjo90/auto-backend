@@ -250,4 +250,29 @@ service SellerService {
     failedAdapters     : LargeString;   // JSON array of adapter names
     newVisibilityScore : Integer;
   };
+
+  /** Get aggregate KPIs for seller dashboard (Story 6-1) */
+  action getAggregateKPIs() returns {
+    kpis : LargeString;   // JSON: ISellerKpiSummary
+  };
+
+  /** Get listing performance data for seller table (Story 6-1) */
+  action getListingPerformance(
+    sortBy    : String(30),    // column name
+    sortDir   : String(4),     // 'asc' or 'desc'
+    skip      : Integer,
+    top       : Integer
+  ) returns {
+    listings : LargeString;   // JSON array of ISellerListingPerformance
+    total    : Integer;
+  };
+
+  /** Get metric drilldown time-series data (Story 6-1) */
+  action getMetricDrilldown(
+    metric    : String(30) not null,   // SellerKpiMetric
+    listingId : String(36),            // optional, null for aggregate
+    periodDays : Integer               // 7, 30, or 90
+  ) returns {
+    drilldown : LargeString;   // JSON: IMetricDrilldownData
+  };
 }

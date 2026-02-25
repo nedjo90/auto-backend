@@ -65,6 +65,11 @@ import {
   handleGetListingHistory,
 } from "./handlers/lifecycle-handler";
 import { handleCheckResyncAvailability, handleResyncListing } from "./handlers/resync-handler";
+import {
+  handleGetAggregateKPIs,
+  handleGetListingPerformance,
+  handleGetMetricDrilldown,
+} from "./handlers/seller-kpi-handler";
 
 const LOG = cds.log("seller");
 
@@ -339,6 +344,9 @@ export default class SellerServiceHandler extends cds.ApplicationService {
     this.on("getListingHistory", handleGetListingHistory);
     this.on("checkResyncAvailability", handleCheckResyncAvailability);
     this.on("resyncListing", handleResyncListing);
+    this.on("getAggregateKPIs", handleGetAggregateKPIs);
+    this.on("getListingPerformance", handleGetListingPerformance);
+    this.on("getMetricDrilldown", handleGetMetricDrilldown);
     this.before("UPDATE", "Declarations", this.rejectDeclarationUpdate);
     this.before("DELETE", "Declarations", this.rejectDeclarationDelete);
     await super.init();
