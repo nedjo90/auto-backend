@@ -493,6 +493,7 @@ export async function handleGetListingDetail(req: cds.Request): Promise<unknown>
     visibilityLabel: listing.visibilityLabel || "Non évalué",
     publishedAt: listing.publishedAt,
     soldAt: listing.soldAt,
+    city: listing.city || null,
     sellerId: listing.sellerId,
     photos: photos.map((p: Record<string, unknown>) => ({
       ID: p.ID,

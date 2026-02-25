@@ -5,35 +5,11 @@
  */
 
 // Re-export from shared for backward compatibility
-export { generateListingSlug as generateSlug, extractIdFromSlug } from "@auto/shared";
-
-/**
- * Generate a canonical URL for search pages.
- * Normalizes and sorts query parameters to prevent duplicate content.
- */
-export function generateCanonicalUrl(
-  basePath: string,
-  searchParams: Record<string, string | string[] | undefined>,
-): string {
-  const params = new URLSearchParams();
-  const sortedKeys = Object.keys(searchParams).sort();
-
-  for (const key of sortedKeys) {
-    const value = searchParams[key];
-    if (value === undefined || value === "" || value === null) continue;
-    if (Array.isArray(value)) {
-      const sorted = [...value].filter((v) => v !== "").sort();
-      for (const v of sorted) {
-        params.append(key, v);
-      }
-    } else {
-      params.set(key, value as string);
-    }
-  }
-
-  const qs = params.toString();
-  return qs ? `${basePath}?${qs}` : basePath;
-}
+export {
+  generateListingSlug as generateSlug,
+  extractIdFromSlug,
+  generateCanonicalUrl,
+} from "@auto/shared";
 
 /** Listing data shape for structured data generation. */
 export interface StructuredDataInput {
