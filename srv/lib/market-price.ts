@@ -23,6 +23,7 @@ interface CacheEntry {
 }
 
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const CACHE_MAX_SIZE = 500;
 const cache = new Map<string, CacheEntry>();
 
 /** Build a deterministic cache key from listing attributes. */
@@ -30,11 +31,20 @@ function buildCacheKey(listing: MarketPriceInput): string {
   return `${listing.make}|${listing.model}|${listing.year}|${listing.mileage}|${listing.fuelType}|${listing.price}`;
 }
 
-/** Clear expired entries from cache. Called periodically during writes. */
+/** Evict expired entries and enforce max size. Called after writes. */
 function evictExpired(): void {
   const now = Date.now();
   for (const [key, entry] of cache) {
     if (entry.expiresAt <= now) cache.delete(key);
+  }
+  // If still over max size, evict oldest entries (Map preserves insertion order)
+  if (cache.size > CACHE_MAX_SIZE) {
+    const excess = cache.size - CACHE_MAX_SIZE;
+    const keys = cache.keys();
+    for (let i = 0; i < excess; i++) {
+      const next = keys.next();
+      if (!next.done) cache.delete(next.value);
+    }
   }
 }
 
