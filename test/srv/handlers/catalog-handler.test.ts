@@ -1,6 +1,16 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-require-imports */
 export {};
 
+const mockComputeMarketComparison = jest.fn().mockResolvedValue({
+  position: "aligned",
+  percentageDiff: 0,
+  displayText: "Prix aligné",
+});
+
+jest.mock("../../../srv/lib/market-price", () => ({
+  computeMarketComparison: (...args: any[]) => mockComputeMarketComparison(...args),
+}));
+
 const mockRun = jest.fn();
 const mockEntities = jest.fn();
 const mockUuid = jest.fn().mockReturnValue("new-uuid-1234");
@@ -135,6 +145,8 @@ describe("catalog-handler", () => {
             condition: "Bon",
             visibilityScore: 75,
             visibilityLabel: "Bien documenté",
+            certificationLevel: "bien_documente",
+            ctValid: true,
             publishedAt: "2026-01-01T00:00:00Z",
             sellerId: "seller-1",
           },
@@ -162,6 +174,9 @@ describe("catalog-handler", () => {
       expect(items[0].primaryPhotoUrl).toBe("https://cdn.example.com/photo1.jpg");
       expect(items[0].photoCount).toBe(3);
       expect(items[0].certifiedFieldCount).toBe(10);
+      expect(items[0].certificationLevel).toBe("bien_documente");
+      expect(items[0].ctValid).toBe(true);
+      expect(items[0].marketComparison).toBeDefined();
     });
 
     it("should handle search parameter", async () => {
@@ -467,6 +482,181 @@ describe("catalog-handler", () => {
       await handleGetListings(req);
 
       expect(mockOrderBy).toHaveBeenCalledWith("publishedAt desc");
+    });
+
+    // ─── Certification & Market Filter Tests (Story 4-3) ──────────────
+
+    it("should filter by certificationLevel", async () => {
+      mockRun.mockResolvedValueOnce({ count: 2 }).mockResolvedValueOnce([]);
+
+      const req = createMockReq({
+        skip: 0,
+        top: 20,
+        certificationLevel: JSON.stringify(["tres_documente", "bien_documente"]),
+      });
+      const result = await handleGetListings(req);
+
+      expect(result.total).toBe(2);
+      expect(mockWhere).toHaveBeenCalled();
+    });
+
+    it("should filter by ctValid=true", async () => {
+      mockRun.mockResolvedValueOnce({ count: 3 }).mockResolvedValueOnce([]);
+
+      const req = createMockReq({ skip: 0, top: 20, ctValid: true });
+      const result = await handleGetListings(req);
+
+      expect(result.total).toBe(3);
+      expect(mockWhere).toHaveBeenCalled();
+    });
+
+    it("should not filter by ctValid when false", async () => {
+      mockRun.mockResolvedValueOnce({ count: 10 }).mockResolvedValueOnce([]);
+
+      const req = createMockReq({ skip: 0, top: 20, ctValid: false });
+      const result = await handleGetListings(req);
+
+      expect(result.total).toBe(10);
+    });
+
+    it("should post-filter by marketPosition=below", async () => {
+      mockComputeMarketComparison
+        .mockResolvedValueOnce({
+          position: "below",
+          percentageDiff: -10,
+          displayText: "10% en dessous du marché",
+        })
+        .mockResolvedValueOnce({
+          position: "above",
+          percentageDiff: 15,
+          displayText: "15% au-dessus du marché",
+        });
+
+      mockRun
+        .mockResolvedValueOnce({ count: 2 })
+        .mockResolvedValueOnce([
+          {
+            ID: "listing-cheap",
+            make: "Renault",
+            model: "Clio",
+            year: 2020,
+            price: 12000,
+            mileage: 50000,
+            fuelType: "essence",
+            visibilityScore: 75,
+            visibilityLabel: "Bien documenté",
+            certificationLevel: "bien_documente",
+            ctValid: true,
+            sellerId: "seller-1",
+          },
+          {
+            ID: "listing-expensive",
+            make: "BMW",
+            model: "320",
+            year: 2020,
+            price: 40000,
+            mileage: 30000,
+            fuelType: "diesel",
+            visibilityScore: 90,
+            visibilityLabel: "Très documenté",
+            certificationLevel: "tres_documente",
+            ctValid: true,
+            sellerId: "seller-2",
+          },
+        ])
+        // Enrichment for listing-cheap
+        .mockResolvedValueOnce(null) // photo
+        .mockResolvedValueOnce({ count: 0 })
+        .mockResolvedValueOnce({ count: 5 })
+        .mockResolvedValueOnce({ count: 10 })
+        // Enrichment for listing-expensive
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ count: 0 })
+        .mockResolvedValueOnce({ count: 8 })
+        .mockResolvedValueOnce({ count: 10 });
+
+      const req = createMockReq({ skip: 0, top: 20, marketPosition: "below" });
+      const result = await handleGetListings(req);
+
+      const items = JSON.parse(result.items);
+      expect(items).toHaveLength(1);
+      expect(items[0].ID).toBe("listing-cheap");
+      expect(result.total).toBe(1);
+    });
+
+    it("should return all items when marketPosition is not specified", async () => {
+      mockRun.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce([
+        {
+          ID: "listing-1",
+          make: "Renault",
+          model: "Clio",
+          year: 2020,
+          price: 15000,
+          mileage: 50000,
+          fuelType: "essence",
+          visibilityScore: 75,
+          visibilityLabel: "Bien documenté",
+          certificationLevel: "bien_documente",
+          ctValid: false,
+          sellerId: "seller-1",
+        },
+      ]);
+      mockRun
+        .mockResolvedValueOnce(null) // photo
+        .mockResolvedValueOnce({ count: 0 })
+        .mockResolvedValueOnce({ count: 5 })
+        .mockResolvedValueOnce({ count: 10 });
+
+      const req = createMockReq({ skip: 0, top: 20 });
+      const result = await handleGetListings(req);
+
+      const items = JSON.parse(result.items);
+      expect(items).toHaveLength(1);
+    });
+
+    it("should include marketComparison in listing detail response", async () => {
+      mockComputeMarketComparison.mockResolvedValue({
+        position: "below",
+        percentageDiff: -8,
+        displayText: "8% en dessous du marché",
+      });
+
+      const validUuid2 = "b1b2c3d4-e5f6-7890-abcd-ef1234567890";
+      mockRun
+        .mockResolvedValueOnce({
+          ID: validUuid2,
+          make: "Renault",
+          model: "Clio",
+          year: 2020,
+          price: 15000,
+          mileage: 50000,
+          fuelType: "essence",
+          status: "published",
+          visibilityScore: 75,
+          visibilityLabel: "Bien documenté",
+          certificationLevel: "bien_documente",
+          ctValid: true,
+          publishedAt: "2026-01-01",
+          sellerId: "seller-1",
+        })
+        .mockResolvedValueOnce([]) // photos
+        .mockResolvedValueOnce([]) // certified fields
+        .mockResolvedValueOnce(null) // no history report
+        .mockResolvedValueOnce(null) // no analytics
+        .mockResolvedValueOnce(null) // no existing analytics
+        .mockResolvedValueOnce(undefined); // insert analytics
+
+      const req = createMockReq({ listingId: validUuid2 });
+      const result = await handleGetListingDetail(req);
+
+      const listing = JSON.parse(result.listing);
+      expect(listing.marketComparison).toEqual({
+        position: "below",
+        percentageDiff: -8,
+        displayText: "8% en dessous du marché",
+      });
+      expect(listing.certificationLevel).toBe("bien_documente");
+      expect(listing.ctValid).toBe(true);
     });
 
     // ─── Location Radius Tests (Story 4-2 Task 2) ─────────────────────

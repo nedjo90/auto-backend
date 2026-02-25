@@ -58,6 +58,10 @@ entity Listing : cuid, managed {
   city                  : String(100);
   postalCode            : String(10);
 
+  // Certification & CT (Story 4-3)
+  certificationLevel    : String(30);                 // tres_documente, bien_documente, partiellement_documente
+  ctValid               : Boolean default false;      // contrôle technique valid
+
   // Status
   status                : String(20) default 'draft';  // draft, published, sold, archived
   visibilityScore       : Integer default 0;

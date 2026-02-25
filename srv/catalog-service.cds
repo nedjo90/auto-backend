@@ -12,6 +12,7 @@ service CatalogService {
     description, options, interiorColor, exteriorColor,
     transmission, driveType, registrationDate,
     status, visibilityScore, visibilityLabel,
+    certificationLevel, ctValid,
     publishedAt, soldAt, sellerId,
     latitude, longitude, city, postalCode
   };
@@ -37,6 +38,10 @@ service CatalogService {
     gearbox      : LargeString,    // JSON array of gearbox types
     bodyType     : LargeString,    // JSON array of body types
     color        : LargeString,    // JSON array of colors
+    // Certification & market filters (Story 4-3)
+    certificationLevel : LargeString,  // JSON array of certification levels
+    ctValid      : Boolean,            // filter by valid CT only
+    marketPosition : String(20),       // below, aligned, above
     // Location radius search
     latitude     : Decimal(9, 6),
     longitude    : Decimal(9, 6),

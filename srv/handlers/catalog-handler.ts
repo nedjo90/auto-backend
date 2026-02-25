@@ -1,6 +1,7 @@
 import cds from "@sap/cds";
-import type { IPublicListingCard, IPublicListingDetail } from "@auto/shared";
+import type { IPublicListingCard, IPublicListingDetail, MarketPricePosition } from "@auto/shared";
 import { LISTING_PAGE_SIZE } from "@auto/shared";
+import { computeMarketComparison } from "../lib/market-price";
 
 const LOG = cds.log("catalog-handler");
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -21,6 +22,9 @@ interface GetListingsInput {
   gearbox?: string; // JSON array
   bodyType?: string; // JSON array
   color?: string; // JSON array
+  certificationLevel?: string; // JSON array
+  ctValid?: boolean;
+  marketPosition?: string; // below, aligned, above
   latitude?: number;
   longitude?: number;
   radius?: number; // km
@@ -167,6 +171,20 @@ export async function handleGetListings(req: cds.Request): Promise<unknown> {
     conditions.push({ color: { in: colors } });
   }
 
+  // Certification level filter (Story 4-3)
+  const certLevels = parseJsonArray(data.certificationLevel);
+  if (certLevels.length > 0) {
+    conditions.push({ certificationLevel: { in: certLevels } });
+  }
+
+  // CT valid filter (Story 4-3)
+  if (data.ctValid === true) {
+    conditions.push({ ctValid: true });
+  }
+
+  // Market position filter flag (post-filter after market price computation)
+  const marketPositionFilter = data.marketPosition as MarketPricePosition | undefined;
+
   // Location radius search
   const hasLocationFilter =
     data.latitude != null && data.longitude != null && data.radius != null && data.radius > 0;
@@ -198,6 +216,8 @@ export async function handleGetListings(req: cds.Request): Promise<unknown> {
     "condition",
     "visibilityScore",
     "visibilityLabel",
+    "certificationLevel",
+    "ctValid",
     "publishedAt",
     "sellerId",
     "latitude",
@@ -250,8 +270,8 @@ export async function handleGetListings(req: cds.Request): Promise<unknown> {
     );
   }
 
-  // Enrich with photo and certification data
-  const items: IPublicListingCard[] = [];
+  // Enrich with photo, certification, and market price data
+  const enriched: IPublicListingCard[] = [];
   for (const listing of listings) {
     // Get primary photo
     const primaryPhoto = await cds.run(
@@ -283,7 +303,17 @@ export async function handleGetListings(req: cds.Request): Promise<unknown> {
         .where({ listingId: listing.ID }),
     );
 
-    items.push({
+    // Compute market comparison (Story 4-3)
+    const marketComparison = await computeMarketComparison({
+      make: listing.make,
+      model: listing.model,
+      year: listing.year,
+      mileage: listing.mileage,
+      fuelType: listing.fuelType,
+      price: listing.price,
+    });
+
+    enriched.push({
       ID: listing.ID,
       make: listing.make,
       model: listing.model,
@@ -304,7 +334,17 @@ export async function handleGetListings(req: cds.Request): Promise<unknown> {
       certifiedFieldCount: certifiedResult?.count || 0,
       totalFieldCount: totalFieldsResult?.count || 0,
       sellerId: listing.sellerId,
+      certificationLevel: listing.certificationLevel || null,
+      ctValid: listing.ctValid ?? null,
+      marketComparison,
     });
+  }
+
+  // Post-filter by market position if requested (Story 4-3)
+  let items = enriched;
+  if (marketPositionFilter && ["below", "aligned", "above"].includes(marketPositionFilter)) {
+    items = enriched.filter((item) => item.marketComparison?.position === marketPositionFilter);
+    total = items.length;
   }
 
   return {
@@ -405,6 +445,16 @@ export async function handleGetListingDetail(req: cds.Request): Promise<unknown>
     LOG.warn("Failed to update view count:", err);
   }
 
+  // Compute market comparison for detail (Story 4-3)
+  const detailMarketComparison = await computeMarketComparison({
+    make: listing.make,
+    model: listing.model,
+    year: listing.year,
+    mileage: listing.mileage,
+    fuelType: listing.fuelType,
+    price: listing.price,
+  });
+
   const detail: IPublicListingDetail = {
     ID: listing.ID,
     make: listing.make,
@@ -461,6 +511,9 @@ export async function handleGetListingDetail(req: cds.Request): Promise<unknown>
     })),
     hasHistoryReport,
     analytics,
+    certificationLevel: listing.certificationLevel || null,
+    ctValid: listing.ctValid ?? null,
+    marketComparison: detailMarketComparison,
   };
 
   return {
