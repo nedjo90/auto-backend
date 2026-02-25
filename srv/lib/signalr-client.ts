@@ -25,6 +25,7 @@ export interface SignalRMessage {
 export const SIGNALR_HUBS = {
   admin: "admin",
   liveScore: "live-score",
+  chat: "chat",
 } as const;
 
 /**
