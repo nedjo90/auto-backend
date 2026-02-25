@@ -2,9 +2,18 @@ using {auto} from '../db/schema';
 
 @path    : '/api/catalog'
 service CatalogService {
-  /** Published listings (public, read-only) */
+  /** Published listings (public, read-only) — restricted columns, no PII */
   @readonly
-  entity Listings as projection on auto.Listing;
+  entity Listings as projection on auto.Listing {
+    ID, make, model, variant, year, price, mileage,
+    fuelType, gearbox, bodyType, color, condition,
+    engineCapacityCc, powerKw, powerHp, doors, seats,
+    co2GKm, euroNorm, energyClass, critAirLevel, critAirLabel,
+    description, options, interiorColor, exteriorColor,
+    transmission, driveType, registrationDate,
+    status, visibilityScore, visibilityLabel,
+    publishedAt, soldAt, sellerId
+  };
 
   /** Card configuration (public, read-only) */
   @readonly
