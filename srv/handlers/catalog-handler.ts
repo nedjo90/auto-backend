@@ -5,23 +5,97 @@ import { LISTING_PAGE_SIZE } from "@auto/shared";
 const LOG = cds.log("catalog-handler");
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Input shape for getListings action. */
+interface GetListingsInput {
+  skip?: number;
+  top?: number;
+  search?: string;
+  minPrice?: number;
+  maxPrice?: number;
+  make?: string;
+  model?: string;
+  minYear?: number;
+  maxYear?: number;
+  maxMileage?: number;
+  fuelType?: string; // JSON array
+  gearbox?: string; // JSON array
+  bodyType?: string; // JSON array
+  color?: string; // JSON array
+  latitude?: number;
+  longitude?: number;
+  radius?: number; // km
+  sort?: string;
+}
+
+const EARTH_RADIUS_KM = 6371;
+
+/** Safe JSON array parser — returns string[] or empty array. */
+function parseJsonArray(value: string | undefined | null): string[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed))
+      return parsed.filter((v: unknown) => typeof v === "string" && v.length > 0);
+  } catch {
+    /* ignore */
+  }
+  return [];
+}
+
+/**
+ * Haversine distance between two points in km.
+ * Used for location radius filtering.
+ */
+export function haversineDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/**
+ * Compute bounding box for a given center and radius (km).
+ * Returns lat/lng bounds for pre-filtering before precise Haversine check.
+ */
+function locationBounds(lat: number, lon: number, radiusKm: number) {
+  const latDelta = radiusKm / 111.32; // ~111.32 km per degree latitude
+  const lonDelta = radiusKm / (111.32 * Math.cos((lat * Math.PI) / 180));
+  return {
+    minLat: lat - latDelta,
+    maxLat: lat + latDelta,
+    minLon: lon - lonDelta,
+    maxLon: lon + lonDelta,
+  };
+}
+
+/** Map sort parameter to CDS orderBy clause. */
+function resolveOrderBy(sort: string | undefined): string {
+  switch (sort) {
+    case "price_asc":
+      return "price asc";
+    case "price_desc":
+      return "price desc";
+    case "date_desc":
+      return "publishedAt desc";
+    case "mileage_asc":
+      return "mileage asc";
+    default:
+      return "publishedAt desc"; // relevance / default
+  }
+}
+
 /**
  * Handler for getListings action.
- * Returns paginated published listings for the marketplace browse/search page.
+ * Returns paginated published listings with multi-criteria filtering and sorting.
  */
 export async function handleGetListings(req: cds.Request): Promise<unknown> {
-  const {
-    skip: rawSkip,
-    top: rawTop,
-    search,
-  } = req.data as {
-    skip?: number;
-    top?: number;
-    search?: string;
-  };
+  const data = req.data as GetListingsInput;
 
-  const skip = Math.max(0, rawSkip || 0);
-  const top = Math.min(100, Math.max(1, rawTop || LISTING_PAGE_SIZE));
+  const skip = Math.max(0, data.skip || 0);
+  const top = Math.min(100, Math.max(1, data.top || LISTING_PAGE_SIZE));
 
   const entities = cds.entities("auto");
 
@@ -29,9 +103,9 @@ export async function handleGetListings(req: cds.Request): Promise<unknown> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const conditions: any[] = [{ status: "published" }];
 
-  // Basic search across make, model, variant
-  if (search && search.trim().length > 0) {
-    const term = search.trim().toLowerCase();
+  // Full-text search across make, model, variant
+  if (data.search && data.search.trim().length > 0) {
+    const term = data.search.trim().toLowerCase();
     conditions.push({
       or: [
         { make: { like: `%${term}%` } },
@@ -41,37 +115,140 @@ export async function handleGetListings(req: cds.Request): Promise<unknown> {
     });
   }
 
-  // Count total
-  const countResult = await cds.run(
-    SELECT.one.from(entities["Listing"]).columns("count(*) as count").where(conditions),
-  );
-  const total = countResult?.count || 0;
+  // Price range filter
+  if (data.minPrice != null) {
+    conditions.push({ price: { ">=": data.minPrice } });
+  }
+  if (data.maxPrice != null) {
+    conditions.push({ price: { "<=": data.maxPrice } });
+  }
 
-  // Fetch listings page
-  const listings = await cds.run(
-    SELECT.from(entities["Listing"])
-      .columns(
-        "ID",
-        "make",
-        "model",
-        "variant",
-        "year",
-        "price",
-        "mileage",
-        "fuelType",
-        "gearbox",
-        "bodyType",
-        "color",
-        "condition",
-        "visibilityScore",
-        "visibilityLabel",
-        "publishedAt",
-        "sellerId",
-      )
-      .where(conditions)
-      .orderBy("publishedAt desc")
-      .limit(top, skip),
-  );
+  // Make (brand) exact match
+  if (data.make) {
+    conditions.push({ make: data.make });
+  }
+
+  // Model exact match
+  if (data.model) {
+    conditions.push({ model: data.model });
+  }
+
+  // Year range filter
+  if (data.minYear != null) {
+    conditions.push({ year: { ">=": data.minYear } });
+  }
+  if (data.maxYear != null) {
+    conditions.push({ year: { "<=": data.maxYear } });
+  }
+
+  // Max mileage filter
+  if (data.maxMileage != null) {
+    conditions.push({ mileage: { "<=": data.maxMileage } });
+  }
+
+  // Multi-value filters (JSON arrays)
+  const fuelTypes = parseJsonArray(data.fuelType);
+  if (fuelTypes.length > 0) {
+    conditions.push({ fuelType: { in: fuelTypes } });
+  }
+
+  const gearboxes = parseJsonArray(data.gearbox);
+  if (gearboxes.length > 0) {
+    conditions.push({ gearbox: { in: gearboxes } });
+  }
+
+  const bodyTypes = parseJsonArray(data.bodyType);
+  if (bodyTypes.length > 0) {
+    conditions.push({ bodyType: { in: bodyTypes } });
+  }
+
+  const colors = parseJsonArray(data.color);
+  if (colors.length > 0) {
+    conditions.push({ color: { in: colors } });
+  }
+
+  // Location radius search
+  const hasLocationFilter =
+    data.latitude != null && data.longitude != null && data.radius != null && data.radius > 0;
+
+  if (hasLocationFilter) {
+    // Pre-filter with bounding box (reduces candidate set before Haversine)
+    const bounds = locationBounds(data.latitude!, data.longitude!, data.radius!);
+    conditions.push({ latitude: { ">=": bounds.minLat } });
+    conditions.push({ latitude: { "<=": bounds.maxLat } });
+    conditions.push({ longitude: { ">=": bounds.minLon } });
+    conditions.push({ longitude: { "<=": bounds.maxLon } });
+  }
+
+  // Resolve sort order
+  const orderBy = resolveOrderBy(data.sort);
+
+  const listingColumns = [
+    "ID",
+    "make",
+    "model",
+    "variant",
+    "year",
+    "price",
+    "mileage",
+    "fuelType",
+    "gearbox",
+    "bodyType",
+    "color",
+    "condition",
+    "visibilityScore",
+    "visibilityLabel",
+    "publishedAt",
+    "sellerId",
+    "latitude",
+    "longitude",
+    "city",
+    "postalCode",
+  ];
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let listings: any[];
+  let total: number;
+
+  if (hasLocationFilter) {
+    // Fetch all bounding-box candidates, then apply precise Haversine filter
+    const candidates = await cds.run(
+      SELECT.from(entities["Listing"])
+        .columns(...listingColumns)
+        .where(conditions)
+        .orderBy(orderBy),
+    );
+
+    // Precise Haversine post-filter
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const filtered = candidates.filter((l: any) => {
+      if (l.latitude == null || l.longitude == null) return false;
+      const dist = haversineDistance(
+        data.latitude!,
+        data.longitude!,
+        Number(l.latitude),
+        Number(l.longitude),
+      );
+      return dist <= data.radius!;
+    });
+
+    total = filtered.length;
+    listings = filtered.slice(skip, skip + top);
+  } else {
+    // Standard path: count + paginated fetch
+    const countResult = await cds.run(
+      SELECT.one.from(entities["Listing"]).columns("count(*) as count").where(conditions),
+    );
+    total = countResult?.count || 0;
+
+    listings = await cds.run(
+      SELECT.from(entities["Listing"])
+        .columns(...listingColumns)
+        .where(conditions)
+        .orderBy(orderBy)
+        .limit(top, skip),
+    );
+  }
 
   // Enrich with photo and certification data
   const items: IPublicListingCard[] = [];

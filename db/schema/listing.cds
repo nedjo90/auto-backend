@@ -52,6 +52,12 @@ entity Listing : cuid, managed {
   vehicleType       : String(100);
   plantCountry      : String(100);
 
+  // Location (Story 4-2: populated from city/postal code geocoding)
+  latitude              : Decimal(9, 6);   // -90 to 90
+  longitude             : Decimal(9, 6);   // -180 to 180
+  city                  : String(100);
+  postalCode            : String(10);
+
   // Status
   status                : String(20) default 'draft';  // draft, published, sold, archived
   visibilityScore       : Integer default 0;
@@ -145,3 +151,16 @@ annotate CertifiedField with @(assert.unique: {listingFieldName: [listingId, fie
 annotate ApiCachedData with @(assert.unique: {vehicleAdapter: [vehicleIdentifier, identifierType, adapterName, isValid]});
 annotate HistoryReport with @(assert.unique: {listingReport: [listingId]});
 annotate ListingAnalytics with @(assert.unique: {listingAnalytics: [listingId]});
+
+// ─── Full-Text Search (Story 4-2) ───────────────────────────────────────
+annotate Listing with @cds.search: { make, model, variant };
+
+// Production PostgreSQL indexes (Story 4-2) — apply via migration:
+// CREATE INDEX idx_listing_status ON auto_Listing (status);
+// CREATE INDEX idx_listing_price ON auto_Listing (price);
+// CREATE INDEX idx_listing_make ON auto_Listing (make);
+// CREATE INDEX idx_listing_model ON auto_Listing (model);
+// CREATE INDEX idx_listing_year ON auto_Listing (year);
+// CREATE INDEX idx_listing_mileage ON auto_Listing (mileage);
+// CREATE INDEX idx_listing_fueltype ON auto_Listing (fuelType);
+// CREATE INDEX idx_listing_published ON auto_Listing (status, publishedAt DESC);

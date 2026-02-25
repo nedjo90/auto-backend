@@ -12,18 +12,37 @@ service CatalogService {
     description, options, interiorColor, exteriorColor,
     transmission, driveType, registrationDate,
     status, visibilityScore, visibilityLabel,
-    publishedAt, soldAt, sellerId
+    publishedAt, soldAt, sellerId,
+    latitude, longitude, city, postalCode
   };
 
   /** Card configuration (public, read-only) */
   @readonly
   entity ConfigListingCards as projection on auto.ConfigListingCard;
 
-  /** Get published listings with pagination for infinite scroll */
+  /** Get published listings with pagination, filtering, and sorting */
   action getListings(
-    skip   : Integer,
-    top    : Integer,
-    search : String(200)
+    skip         : Integer,
+    top          : Integer,
+    search       : String(200),
+    // Filters (Story 4-2)
+    minPrice     : Decimal(10, 2),
+    maxPrice     : Decimal(10, 2),
+    make         : String(100),
+    model        : String(100),
+    minYear      : Integer,
+    maxYear      : Integer,
+    maxMileage   : Integer,
+    fuelType     : LargeString,    // JSON array of fuel types
+    gearbox      : LargeString,    // JSON array of gearbox types
+    bodyType     : LargeString,    // JSON array of body types
+    color        : LargeString,    // JSON array of colors
+    // Location radius search
+    latitude     : Decimal(9, 6),
+    longitude    : Decimal(9, 6),
+    radius       : Integer,        // km
+    // Sort
+    sort         : String(30)      // price_asc, price_desc, date_desc, mileage_asc, relevance
   ) returns {
     items   : LargeString;   // JSON array of IPublicListingCard
     total   : Integer;

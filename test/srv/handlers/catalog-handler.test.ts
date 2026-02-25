@@ -72,6 +72,7 @@ mockSet.mockReturnValue({
 const {
   handleGetListings,
   handleGetListingDetail,
+  haversineDistance,
 } = require("../../../srv/handlers/catalog-handler");
 
 const mockError = jest.fn();
@@ -200,6 +201,503 @@ describe("catalog-handler", () => {
       const result = await handleGetListings(req);
 
       expect(result.hasMore).toBe(true);
+    });
+
+    // ─── Filter Tests (Story 4-2) ──────────────────────────────────────
+
+    it("should filter by minPrice", async () => {
+      mockRun.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce([]);
+
+      const req = createMockReq({ skip: 0, top: 20, minPrice: 5000 });
+      const result = await handleGetListings(req);
+
+      expect(result.total).toBe(1);
+      // Verify WHERE was called (conditions include minPrice filter)
+      expect(mockWhere).toHaveBeenCalled();
+    });
+
+    it("should filter by maxPrice", async () => {
+      mockRun.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce([]);
+
+      const req = createMockReq({ skip: 0, top: 20, maxPrice: 20000 });
+      const result = await handleGetListings(req);
+
+      expect(result.total).toBe(1);
+      expect(mockWhere).toHaveBeenCalled();
+    });
+
+    it("should filter by price range (minPrice + maxPrice)", async () => {
+      mockRun.mockResolvedValueOnce({ count: 3 }).mockResolvedValueOnce([]);
+
+      const req = createMockReq({ skip: 0, top: 20, minPrice: 5000, maxPrice: 15000 });
+      const result = await handleGetListings(req);
+
+      expect(result.total).toBe(3);
+    });
+
+    it("should filter by make (brand)", async () => {
+      mockRun.mockResolvedValueOnce({ count: 2 }).mockResolvedValueOnce([]);
+
+      const req = createMockReq({ skip: 0, top: 20, make: "Peugeot" });
+      const result = await handleGetListings(req);
+
+      expect(result.total).toBe(2);
+    });
+
+    it("should filter by model", async () => {
+      mockRun.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce([]);
+
+      const req = createMockReq({ skip: 0, top: 20, model: "308" });
+      const result = await handleGetListings(req);
+
+      expect(result.total).toBe(1);
+    });
+
+    it("should filter by make and model combined", async () => {
+      mockRun.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce([]);
+
+      const req = createMockReq({ skip: 0, top: 20, make: "Peugeot", model: "308" });
+      const result = await handleGetListings(req);
+
+      expect(result.total).toBe(1);
+    });
+
+    it("should filter by year range (minYear + maxYear)", async () => {
+      mockRun.mockResolvedValueOnce({ count: 5 }).mockResolvedValueOnce([]);
+
+      const req = createMockReq({ skip: 0, top: 20, minYear: 2018, maxYear: 2023 });
+      const result = await handleGetListings(req);
+
+      expect(result.total).toBe(5);
+    });
+
+    it("should filter by minYear only", async () => {
+      mockRun.mockResolvedValueOnce({ count: 10 }).mockResolvedValueOnce([]);
+
+      const req = createMockReq({ skip: 0, top: 20, minYear: 2020 });
+      const result = await handleGetListings(req);
+
+      expect(result.total).toBe(10);
+    });
+
+    it("should filter by maxMileage", async () => {
+      mockRun.mockResolvedValueOnce({ count: 4 }).mockResolvedValueOnce([]);
+
+      const req = createMockReq({ skip: 0, top: 20, maxMileage: 80000 });
+      const result = await handleGetListings(req);
+
+      expect(result.total).toBe(4);
+    });
+
+    it("should filter by fuelType (multi-select JSON array)", async () => {
+      mockRun.mockResolvedValueOnce({ count: 3 }).mockResolvedValueOnce([]);
+
+      const req = createMockReq({
+        skip: 0,
+        top: 20,
+        fuelType: JSON.stringify(["essence", "diesel"]),
+      });
+      const result = await handleGetListings(req);
+
+      expect(result.total).toBe(3);
+    });
+
+    it("should filter by gearbox (multi-select JSON array)", async () => {
+      mockRun.mockResolvedValueOnce({ count: 2 }).mockResolvedValueOnce([]);
+
+      const req = createMockReq({
+        skip: 0,
+        top: 20,
+        gearbox: JSON.stringify(["automatique"]),
+      });
+      const result = await handleGetListings(req);
+
+      expect(result.total).toBe(2);
+    });
+
+    it("should filter by bodyType (multi-select JSON array)", async () => {
+      mockRun.mockResolvedValueOnce({ count: 6 }).mockResolvedValueOnce([]);
+
+      const req = createMockReq({
+        skip: 0,
+        top: 20,
+        bodyType: JSON.stringify(["berline", "SUV", "break"]),
+      });
+      const result = await handleGetListings(req);
+
+      expect(result.total).toBe(6);
+    });
+
+    it("should filter by color (multi-select JSON array)", async () => {
+      mockRun.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce([]);
+
+      const req = createMockReq({
+        skip: 0,
+        top: 20,
+        color: JSON.stringify(["noir", "blanc"]),
+      });
+      const result = await handleGetListings(req);
+
+      expect(result.total).toBe(1);
+    });
+
+    it("should ignore invalid JSON for fuelType", async () => {
+      mockRun.mockResolvedValueOnce({ count: 10 }).mockResolvedValueOnce([]);
+
+      const req = createMockReq({
+        skip: 0,
+        top: 20,
+        fuelType: "not-valid-json",
+      });
+      const result = await handleGetListings(req);
+
+      // Should not crash and return all results (no filter applied)
+      expect(result.total).toBe(10);
+    });
+
+    it("should ignore empty JSON array for fuelType", async () => {
+      mockRun.mockResolvedValueOnce({ count: 10 }).mockResolvedValueOnce([]);
+
+      const req = createMockReq({
+        skip: 0,
+        top: 20,
+        fuelType: JSON.stringify([]),
+      });
+      const result = await handleGetListings(req);
+
+      expect(result.total).toBe(10);
+    });
+
+    it("should combine multiple filters", async () => {
+      mockRun.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce([]);
+
+      const req = createMockReq({
+        skip: 0,
+        top: 20,
+        make: "Renault",
+        model: "Clio",
+        minPrice: 5000,
+        maxPrice: 15000,
+        minYear: 2018,
+        maxYear: 2023,
+        maxMileage: 100000,
+        fuelType: JSON.stringify(["essence"]),
+        gearbox: JSON.stringify(["manuelle"]),
+      });
+      const result = await handleGetListings(req);
+
+      expect(result.total).toBe(1);
+    });
+
+    it("should combine search text with filters", async () => {
+      mockRun.mockResolvedValueOnce({ count: 2 }).mockResolvedValueOnce([]);
+
+      const req = createMockReq({
+        skip: 0,
+        top: 20,
+        search: "Renault",
+        minPrice: 5000,
+        maxMileage: 80000,
+      });
+      const result = await handleGetListings(req);
+
+      expect(result.total).toBe(2);
+    });
+
+    // ─── Sort Tests (Story 4-2) ──────────────────────────────────────
+
+    it("should sort by price ascending", async () => {
+      mockRun.mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce([]);
+
+      const req = createMockReq({ skip: 0, top: 20, sort: "price_asc" });
+      await handleGetListings(req);
+
+      expect(mockOrderBy).toHaveBeenCalledWith("price asc");
+    });
+
+    it("should sort by price descending", async () => {
+      mockRun.mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce([]);
+
+      const req = createMockReq({ skip: 0, top: 20, sort: "price_desc" });
+      await handleGetListings(req);
+
+      expect(mockOrderBy).toHaveBeenCalledWith("price desc");
+    });
+
+    it("should sort by date descending", async () => {
+      mockRun.mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce([]);
+
+      const req = createMockReq({ skip: 0, top: 20, sort: "date_desc" });
+      await handleGetListings(req);
+
+      expect(mockOrderBy).toHaveBeenCalledWith("publishedAt desc");
+    });
+
+    it("should sort by mileage ascending", async () => {
+      mockRun.mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce([]);
+
+      const req = createMockReq({ skip: 0, top: 20, sort: "mileage_asc" });
+      await handleGetListings(req);
+
+      expect(mockOrderBy).toHaveBeenCalledWith("mileage asc");
+    });
+
+    it("should use default sort (publishedAt desc) for relevance", async () => {
+      mockRun.mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce([]);
+
+      const req = createMockReq({ skip: 0, top: 20, sort: "relevance" });
+      await handleGetListings(req);
+
+      expect(mockOrderBy).toHaveBeenCalledWith("publishedAt desc");
+    });
+
+    it("should use default sort when sort param is not provided", async () => {
+      mockRun.mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce([]);
+
+      const req = createMockReq({ skip: 0, top: 20 });
+      await handleGetListings(req);
+
+      expect(mockOrderBy).toHaveBeenCalledWith("publishedAt desc");
+    });
+
+    it("should use default sort for unknown sort value", async () => {
+      mockRun.mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce([]);
+
+      const req = createMockReq({ skip: 0, top: 20, sort: "invalid_sort" });
+      await handleGetListings(req);
+
+      expect(mockOrderBy).toHaveBeenCalledWith("publishedAt desc");
+    });
+
+    // ─── Location Radius Tests (Story 4-2 Task 2) ─────────────────────
+
+    it("should filter by location radius", async () => {
+      // Marseille center: 43.2965, 5.3698
+      // Listing within 10km
+      mockRun.mockResolvedValueOnce([
+        {
+          ID: "listing-near",
+          make: "Renault",
+          model: "Clio",
+          variant: null,
+          year: 2020,
+          price: 15000,
+          mileage: 50000,
+          fuelType: "essence",
+          gearbox: "manuelle",
+          bodyType: "berline",
+          color: "rouge",
+          condition: "Bon",
+          visibilityScore: 75,
+          visibilityLabel: "Bien documenté",
+          publishedAt: "2026-01-01T00:00:00Z",
+          sellerId: "seller-1",
+          latitude: 43.3, // ~0.4km from center
+          longitude: 5.37,
+          city: "Marseille",
+          postalCode: "13001",
+        },
+        {
+          ID: "listing-far",
+          make: "Peugeot",
+          model: "308",
+          variant: null,
+          year: 2021,
+          price: 20000,
+          mileage: 30000,
+          fuelType: "diesel",
+          gearbox: "automatique",
+          bodyType: "berline",
+          color: "noir",
+          condition: "Excellent",
+          visibilityScore: 90,
+          visibilityLabel: "Très documenté",
+          publishedAt: "2026-02-01T00:00:00Z",
+          sellerId: "seller-2",
+          latitude: 43.7, // ~45km from center
+          longitude: 5.4,
+          city: "Aix-en-Provence",
+          postalCode: "13100",
+        },
+      ]);
+
+      // Primary photo + counts for the "near" listing
+      mockRun
+        .mockResolvedValueOnce({ cdnUrl: "https://cdn/photo.jpg" })
+        .mockResolvedValueOnce({ count: 1 })
+        .mockResolvedValueOnce({ count: 5 })
+        .mockResolvedValueOnce({ count: 10 });
+
+      const req = createMockReq({
+        skip: 0,
+        top: 20,
+        latitude: 43.2965,
+        longitude: 5.3698,
+        radius: 10, // 10km — only "near" listing should match
+      });
+      const result = await handleGetListings(req);
+
+      expect(result.total).toBe(1);
+      const items = JSON.parse(result.items);
+      expect(items).toHaveLength(1);
+      expect(items[0].ID).toBe("listing-near");
+    });
+
+    it("should return zero results when no listings in radius", async () => {
+      // No listings match the bounding box
+      mockRun.mockResolvedValueOnce([]);
+
+      const req = createMockReq({
+        skip: 0,
+        top: 20,
+        latitude: 48.8566, // Paris
+        longitude: 2.3522,
+        radius: 5,
+      });
+      const result = await handleGetListings(req);
+
+      expect(result.total).toBe(0);
+      const items = JSON.parse(result.items);
+      expect(items).toHaveLength(0);
+    });
+
+    it("should include all listings with very large radius", async () => {
+      mockRun.mockResolvedValueOnce([
+        {
+          ID: "listing-1",
+          make: "Renault",
+          model: "Clio",
+          variant: null,
+          year: 2020,
+          price: 15000,
+          mileage: 50000,
+          fuelType: "essence",
+          gearbox: "manuelle",
+          bodyType: "berline",
+          color: "rouge",
+          condition: "Bon",
+          visibilityScore: 75,
+          visibilityLabel: "Bien documenté",
+          publishedAt: "2026-01-01T00:00:00Z",
+          sellerId: "seller-1",
+          latitude: 43.3,
+          longitude: 5.37,
+          city: "Marseille",
+          postalCode: "13001",
+        },
+      ]);
+
+      mockRun
+        .mockResolvedValueOnce({ cdnUrl: null })
+        .mockResolvedValueOnce({ count: 0 })
+        .mockResolvedValueOnce({ count: 3 })
+        .mockResolvedValueOnce({ count: 5 });
+
+      const req = createMockReq({
+        skip: 0,
+        top: 20,
+        latitude: 43.2965,
+        longitude: 5.3698,
+        radius: 1000, // 1000km — should include everything in France
+      });
+      const result = await handleGetListings(req);
+
+      expect(result.total).toBe(1);
+      const items = JSON.parse(result.items);
+      expect(items).toHaveLength(1);
+    });
+
+    it("should exclude listings with null latitude/longitude from radius search", async () => {
+      mockRun.mockResolvedValueOnce([
+        {
+          ID: "listing-no-coords",
+          make: "Citroen",
+          model: "C3",
+          variant: null,
+          year: 2019,
+          price: 12000,
+          mileage: 60000,
+          fuelType: "essence",
+          gearbox: "manuelle",
+          bodyType: "citadine",
+          color: "bleu",
+          condition: "Bon",
+          visibilityScore: 60,
+          visibilityLabel: "Bien documenté",
+          publishedAt: "2026-01-15T00:00:00Z",
+          sellerId: "seller-3",
+          latitude: null,
+          longitude: null,
+          city: null,
+          postalCode: null,
+        },
+      ]);
+
+      const req = createMockReq({
+        skip: 0,
+        top: 20,
+        latitude: 43.2965,
+        longitude: 5.3698,
+        radius: 50,
+      });
+      const result = await handleGetListings(req);
+
+      expect(result.total).toBe(0);
+      const items = JSON.parse(result.items);
+      expect(items).toHaveLength(0);
+    });
+
+    it("should paginate location-filtered results correctly", async () => {
+      // Create 5 listings within radius
+      const nearListings = Array.from({ length: 5 }, (_, i) => ({
+        ID: `listing-${i}`,
+        make: "Renault",
+        model: "Clio",
+        variant: null,
+        year: 2020 + i,
+        price: 10000 + i * 1000,
+        mileage: 50000,
+        fuelType: "essence",
+        gearbox: "manuelle",
+        bodyType: "berline",
+        color: "rouge",
+        condition: "Bon",
+        visibilityScore: 75,
+        visibilityLabel: "Bien documenté",
+        publishedAt: `2026-01-0${i + 1}T00:00:00Z`,
+        sellerId: "seller-1",
+        latitude: 43.3 + i * 0.001, // All very close to center
+        longitude: 5.37,
+        city: "Marseille",
+        postalCode: "13001",
+      }));
+
+      mockRun.mockResolvedValueOnce(nearListings);
+
+      // Enrichment for the 2 items in page (skip: 2, top: 2)
+      for (let i = 0; i < 2; i++) {
+        mockRun
+          .mockResolvedValueOnce(null) // no photo
+          .mockResolvedValueOnce({ count: 0 })
+          .mockResolvedValueOnce({ count: 0 })
+          .mockResolvedValueOnce({ count: 0 });
+      }
+
+      const req = createMockReq({
+        skip: 2,
+        top: 2,
+        latitude: 43.2965,
+        longitude: 5.3698,
+        radius: 20,
+      });
+      const result = await handleGetListings(req);
+
+      expect(result.total).toBe(5);
+      expect(result.hasMore).toBe(true);
+      const items = JSON.parse(result.items);
+      expect(items).toHaveLength(2);
+      expect(items[0].ID).toBe("listing-2");
+      expect(items[1].ID).toBe("listing-3");
     });
 
     it("should handle listing with no primary photo", async () => {
@@ -371,6 +869,35 @@ describe("catalog-handler", () => {
       const listing = JSON.parse(result.listing);
       expect(listing.status).toBe("sold");
       expect(listing.hasHistoryReport).toBe(false);
+    });
+  });
+
+  describe("haversineDistance", () => {
+    it("should return 0 for same point", () => {
+      const d = haversineDistance(43.2965, 5.3698, 43.2965, 5.3698);
+      expect(d).toBeCloseTo(0, 5);
+    });
+
+    it("should compute correct distance between Marseille and Aix (~30km)", () => {
+      // Marseille: 43.2965, 5.3698
+      // Aix-en-Provence: 43.5297, 5.4474
+      const d = haversineDistance(43.2965, 5.3698, 43.5297, 5.4474);
+      expect(d).toBeGreaterThan(25);
+      expect(d).toBeLessThan(35);
+    });
+
+    it("should compute correct distance between Paris and Marseille (~660km)", () => {
+      const d = haversineDistance(48.8566, 2.3522, 43.2965, 5.3698);
+      expect(d).toBeGreaterThan(640);
+      expect(d).toBeLessThan(680);
+    });
+
+    it("should handle exact boundary distance", () => {
+      // Test a point at approximately 10km from Marseille center
+      // 10km north is roughly 43.2965 + (10/111.32) ≈ 43.3863
+      const d = haversineDistance(43.2965, 5.3698, 43.3863, 5.3698);
+      expect(d).toBeGreaterThan(9);
+      expect(d).toBeLessThan(11);
     });
   });
 });
