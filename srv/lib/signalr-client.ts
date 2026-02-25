@@ -26,6 +26,7 @@ export const SIGNALR_HUBS = {
   admin: "admin",
   liveScore: "live-score",
   chat: "chat",
+  notifications: "notifications",
 } as const;
 
 /**

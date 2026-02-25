@@ -1,4 +1,5 @@
 import cds from "@sap/cds";
+import { createNotification } from "./notification-emitter";
 
 const LOG = cds.log("favorite-notifications");
 
@@ -22,23 +23,23 @@ export async function notifyPriceChange(
 
   const direction = newPrice < oldPrice ? "baissé" : "augmenté";
   const label = [make, model].filter(Boolean).join(" ") || "véhicule";
-  const message = `Le prix du ${label} a ${direction} de ${oldPrice}€ à ${newPrice}€`;
+  const body = `Le prix du ${label} a ${direction} de ${oldPrice}€ à ${newPrice}€`;
 
-  const now = new Date().toISOString();
-  const entries = favorites.map((f: { userId: string }) => ({
-    ID: cds.utils.uuid(),
-    userId: f.userId,
-    type: "price_change",
-    message,
-    listingId,
-    isRead: false,
-    createdAt: now,
-  }));
+  let created = 0;
+  for (const f of favorites) {
+    const result = await createNotification({
+      userId: f.userId,
+      type: "price_change",
+      title: "Changement de prix",
+      body,
+      actionUrl: `/listing/${listingId}`,
+      listingId,
+    });
+    if (result) created++;
+  }
 
-  await cds.run(INSERT.into(entities["Notification"]).entries(entries));
-
-  LOG.info(`Created ${entries.length} price_change notifications for listing ${listingId}`);
-  return entries.length;
+  LOG.info(`Created ${created} price_change notifications for listing ${listingId}`);
+  return created;
 }
 
 /**
@@ -58,21 +59,21 @@ export async function notifySold(
   if (favorites.length === 0) return 0;
 
   const label = [make, model].filter(Boolean).join(" ") || "véhicule";
-  const message = `Le ${label} que vous suivez a été vendu`;
+  const body = `Le ${label} que vous suivez a été vendu`;
 
-  const now = new Date().toISOString();
-  const entries = favorites.map((f: { userId: string }) => ({
-    ID: cds.utils.uuid(),
-    userId: f.userId,
-    type: "sold",
-    message,
-    listingId,
-    isRead: false,
-    createdAt: now,
-  }));
+  let created = 0;
+  for (const f of favorites) {
+    const result = await createNotification({
+      userId: f.userId,
+      type: "sold",
+      title: "Véhicule vendu",
+      body,
+      actionUrl: `/listing/${listingId}`,
+      listingId,
+    });
+    if (result) created++;
+  }
 
-  await cds.run(INSERT.into(entities["Notification"]).entries(entries));
-
-  LOG.info(`Created ${entries.length} sold notifications for listing ${listingId}`);
-  return entries.length;
+  LOG.info(`Created ${created} sold notifications for listing ${listingId}`);
+  return created;
 }

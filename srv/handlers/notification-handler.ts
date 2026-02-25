@@ -52,8 +52,11 @@ export async function handleGetNotifications(req: cds.Request) {
     ID: n.ID as string,
     userId: n.userId as string,
     type: n.type as INotification["type"],
-    message: n.message as string,
-    listingId: n.listingId as string,
+    title: (n.title as string) || "",
+    body: (n.body as string) || (n.message as string) || "",
+    message: (n.message as string) || (n.body as string) || "",
+    actionUrl: (n.actionUrl as string) || null,
+    listingId: (n.listingId as string) || null,
     isRead: (n.isRead as boolean) || false,
     createdAt: n.createdAt as string,
   }));

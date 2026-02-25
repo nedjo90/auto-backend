@@ -13,6 +13,7 @@ import {
   CHAT_HUB_NAME,
 } from "@auto/shared";
 import { signalrClient } from "../lib/signalr-client";
+import { createNotification } from "../lib/notification-emitter";
 
 const LOG = cds.log("chat");
 
@@ -165,6 +166,20 @@ export async function handleSendMessage(req: cds.Request) {
     );
   } catch (err) {
     LOG.warn("SignalR notification failed (message still persisted):", err);
+  }
+
+  // Create notification for the recipient (Story 5-2)
+  try {
+    await createNotification({
+      userId: recipientId,
+      type: "new_message",
+      title: "Nouveau message",
+      body: trimmedContent.length > 100 ? trimmedContent.slice(0, 97) + "..." : trimmedContent,
+      actionUrl: `/seller/chat/${conversationId}`,
+      listingId: conversation.listingId,
+    });
+  } catch {
+    // Non-critical
   }
 
   LOG.info(`Message ${messageId} sent in conversation ${conversationId}`);
