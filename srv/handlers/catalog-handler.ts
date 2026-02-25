@@ -1,7 +1,9 @@
 import cds from "@sap/cds";
 import type { IPublicListingCard, IPublicListingDetail, MarketPricePosition } from "@auto/shared";
-import { LISTING_PAGE_SIZE } from "@auto/shared";
+import { LISTING_PAGE_SIZE, generateListingSlug } from "@auto/shared";
 import { computeMarketComparison } from "../lib/market-price";
+import { generateStructuredData } from "../lib/seo";
+import { resolve as resolveSeoTemplate } from "../lib/seo-template-resolver";
 
 const LOG = cds.log("catalog-handler");
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -315,6 +317,7 @@ export async function handleGetListings(req: cds.Request): Promise<unknown> {
 
     enriched.push({
       ID: listing.ID,
+      slug: generateListingSlug(listing),
       make: listing.make,
       model: listing.model,
       variant: listing.variant,
@@ -518,5 +521,126 @@ export async function handleGetListingDetail(req: cds.Request): Promise<unknown>
 
   return {
     listing: JSON.stringify(detail),
+  };
+}
+
+/**
+ * Handler for getListingSeoData action.
+ * Returns slug, meta tags, and structured data for a listing.
+ */
+export async function handleGetListingSeoData(req: cds.Request): Promise<unknown> {
+  const { listingId } = req.data as { listingId: string };
+
+  if (!listingId || !UUID_RE.test(listingId)) {
+    return req.error(400, "Identifiant d'annonce invalide");
+  }
+
+  const entities = cds.entities("auto");
+
+  const listing = await cds.run(
+    SELECT.one
+      .from(entities["Listing"])
+      .columns(
+        "ID",
+        "make",
+        "model",
+        "year",
+        "price",
+        "mileage",
+        "fuelType",
+        "gearbox",
+        "color",
+        "description",
+        "status",
+        "city",
+      )
+      .where({ ID: listingId }),
+  );
+
+  if (!listing || (listing.status !== "published" && listing.status !== "sold")) {
+    return req.error(404, "Annonce non trouvée");
+  }
+
+  // Get primary photo URL
+  const primaryPhoto = await cds.run(
+    SELECT.one
+      .from(entities["ListingPhoto"])
+      .columns("cdnUrl")
+      .where({ listingId, isPrimary: true }),
+  );
+
+  const slug = generateListingSlug(listing);
+
+  const seoData: Record<string, string> = {
+    brand: listing.make || "",
+    model: listing.model || "",
+    year: listing.year != null ? String(listing.year) : "",
+    price: listing.price != null ? String(listing.price) : "",
+    city: listing.city || "",
+    mileage: listing.mileage != null ? String(listing.mileage) : "",
+    fuel: listing.fuelType || "",
+    id: listing.ID,
+  };
+
+  const seoMeta = resolveSeoTemplate("listing_detail", seoData) || {
+    metaTitle: `${listing.make || ""} ${listing.model || ""} ${listing.year || ""} | Auto`.trim(),
+    metaDescription: "",
+    ogTitle: `${listing.make || ""} ${listing.model || ""} | Auto`.trim(),
+    ogDescription: "",
+    canonicalUrl: `/listing/${slug}`,
+  };
+
+  const structuredData = generateStructuredData({
+    ...listing,
+    primaryPhotoUrl: primaryPhoto?.cdnUrl || null,
+  });
+
+  return {
+    slug,
+    metaTitle: seoMeta.metaTitle,
+    metaDescription: seoMeta.metaDescription,
+    ogTitle: seoMeta.ogTitle,
+    ogDescription: seoMeta.ogDescription,
+    ogImage: primaryPhoto?.cdnUrl || "",
+    canonicalUrl: `/listing/${slug}`,
+    structuredData: JSON.stringify(structuredData),
+  };
+}
+
+/**
+ * Handler for getListingSlugs action.
+ * Returns paginated listing slugs for sitemap generation.
+ */
+export async function handleGetListingSlugs(req: cds.Request): Promise<unknown> {
+  const { skip = 0, top = 1000 } = req.data as { skip?: number; top?: number };
+
+  const entities = cds.entities("auto");
+
+  const countResult = await cds.run(
+    SELECT.one
+      .from(entities["Listing"])
+      .columns("count(*) as count")
+      .where({ status: "published" }),
+  );
+  const total = countResult?.count || 0;
+
+  const listings = await cds.run(
+    SELECT.from(entities["Listing"])
+      .columns("ID", "make", "model", "year", "city", "modifiedAt")
+      .where({ status: "published" })
+      .orderBy("publishedAt desc")
+      .limit(top, skip),
+  );
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const slugs = listings.map((l: any) => ({
+    slug: generateListingSlug(l),
+    lastModified: l.modifiedAt || new Date().toISOString(),
+  }));
+
+  return {
+    slugs: JSON.stringify(slugs),
+    total,
+    hasMore: skip + top < total,
   };
 }

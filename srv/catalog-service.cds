@@ -21,6 +21,10 @@ service CatalogService {
   @readonly
   entity ConfigListingCards as projection on auto.ConfigListingCard;
 
+  /** SEO templates (public, read-only) */
+  @readonly
+  entity ConfigSeoTemplates as projection on auto.ConfigSeoTemplate;
+
   /** Get published listings with pagination, filtering, and sorting */
   action getListings(
     skip         : Integer,
@@ -61,5 +65,29 @@ service CatalogService {
     listingId : String(36) not null
   ) returns {
     listing : LargeString;   // JSON: IPublicListingDetail
+  };
+
+  /** Get SEO data (slug, meta tags, structured data) for a listing */
+  action getListingSeoData(
+    listingId : String(36) not null
+  ) returns {
+    slug           : String;
+    metaTitle      : String;
+    metaDescription: String;
+    ogTitle        : String;
+    ogDescription  : String;
+    ogImage        : String;
+    canonicalUrl   : String;
+    structuredData : LargeString;  // JSON-LD string
+  };
+
+  /** Get all published listing slugs for sitemap generation */
+  action getListingSlugs(
+    skip : Integer,
+    top  : Integer
+  ) returns {
+    slugs   : LargeString;  // JSON array of { slug, lastModified }
+    total   : Integer;
+    hasMore : Boolean;
   };
 }

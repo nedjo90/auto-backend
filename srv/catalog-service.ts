@@ -1,5 +1,10 @@
 import cds from "@sap/cds";
-import { handleGetListings, handleGetListingDetail } from "./handlers/catalog-handler";
+import {
+  handleGetListings,
+  handleGetListingDetail,
+  handleGetListingSeoData,
+  handleGetListingSlugs,
+} from "./handlers/catalog-handler";
 
 const LOG = cds.log("catalog");
 
@@ -11,6 +16,8 @@ export default class CatalogServiceHandler extends cds.ApplicationService {
     // Action handlers
     this.on("getListings", handleGetListings);
     this.on("getListingDetail", handleGetListingDetail);
+    this.on("getListingSeoData", handleGetListingSeoData);
+    this.on("getListingSlugs", handleGetListingSlugs);
 
     LOG.info("CatalogService initialized");
     await super.init();
