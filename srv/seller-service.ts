@@ -43,6 +43,7 @@ import {
   getMaxPhotos,
 } from "./lib/photo-storage";
 import { signalrClient, SIGNALR_HUBS } from "./lib/signalr-client";
+import { notifyPriceChange } from "./lib/favorite-notifications";
 import type { VisibilityScoreResult } from "@auto/shared";
 import {
   validateListingField,
@@ -1068,6 +1069,20 @@ export default class SellerServiceHandler extends cds.ApplicationService {
 
     // Update the listing field
     await cds.run(UPDATE(Listing).set(updateData).where({ ID: listingId }));
+
+    // Notify favoriting users on price change for published listings (Story 4-4)
+    if (fieldName === "price" && listing.status === "published" && listing.price != null) {
+      const newPrice = Number(value);
+      if (!isNaN(newPrice) && newPrice !== Number(listing.price)) {
+        notifyPriceChange(
+          listingId,
+          listing.make,
+          listing.model,
+          Number(listing.price),
+          newPrice,
+        ).catch((err: unknown) => LOG.warn("Failed to send price change notifications:", err));
+      }
+    }
 
     // Recalculate visibility score.
     // NOTE: We intentionally re-SELECT the full listing here rather than merging

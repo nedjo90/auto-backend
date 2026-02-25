@@ -2,6 +2,7 @@ import cds from "@sap/cds";
 import { isValidListingTransition } from "@auto/shared";
 import type { ListingStatus } from "@auto/shared";
 import { auditLog, extractAuditContext } from "../middleware/audit-trail";
+import { notifySold } from "../lib/favorite-notifications";
 
 const LOG = cds.log("lifecycle");
 
@@ -71,6 +72,11 @@ export async function handleMarkAsSold(req: cds.Request) {
 
   // Emit event for chat notification (pluggable, Epic 5)
   emitListingStatusChanged(listingId, userId, "sold");
+
+  // Notify users who favorited this listing (Story 4-4)
+  notifySold(listingId, listing.make, listing.model).catch((err) =>
+    LOG.warn("Failed to send sold notifications:", err),
+  );
 
   return {
     success: true,
