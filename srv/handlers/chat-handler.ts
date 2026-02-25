@@ -8,6 +8,7 @@ import type {
 import {
   CHAT_MESSAGES_PAGE_SIZE,
   CHAT_CONVERSATIONS_PAGE_SIZE,
+  CHAT_MAX_MESSAGE_LENGTH,
   CHAT_EVENTS,
   CHAT_HUB_NAME,
 } from "@auto/shared";
@@ -101,6 +102,10 @@ export async function handleSendMessage(req: cds.Request) {
     return req.error(400, "Paramètres manquants");
   }
 
+  if (content.trim().length > CHAT_MAX_MESSAGE_LENGTH) {
+    return req.error(400, `Le message ne peut pas dépasser ${CHAT_MAX_MESSAGE_LENGTH} caractères`);
+  }
+
   const entities = cds.entities("auto");
 
   // Verify conversation exists and user is a participant
@@ -181,20 +186,16 @@ export async function handleGetConversations(req: cds.Request) {
 
   const entities = cds.entities("auto");
 
-  // Get conversations where user is buyer or seller
+  // Get conversations where user is buyer or seller using CDS OR
   const conversations = await cds.run(
     SELECT.from(entities["Conversation"])
+      .where({ or: [{ buyerId: userId }, { sellerId: userId }] })
       .orderBy("lastMessageAt desc", "createdAt desc")
       .limit(top + 1, skip),
   );
 
-  // Filter to user's conversations (CDS may not support OR in where easily)
-  const userConversations = conversations.filter(
-    (c: Record<string, unknown>) => c.buyerId === userId || c.sellerId === userId,
-  );
-
-  const hasMore = userConversations.length > top;
-  const items = userConversations.slice(0, top);
+  const hasMore = conversations.length > top;
+  const items = conversations.slice(0, top);
 
   // Enrich with listing data and unread counts
   const enriched: IConversationListItem[] = [];
@@ -276,10 +277,13 @@ export async function handleGetConversations(req: cds.Request) {
   }
 
   // Count total conversations for user
-  const allConvs = await cds.run(SELECT.from(entities["Conversation"]));
-  const total = allConvs.filter(
-    (c: Record<string, unknown>) => c.buyerId === userId || c.sellerId === userId,
-  ).length;
+  const countResult = await cds.run(
+    SELECT.one
+      .from(entities["Conversation"])
+      .columns("count(*) as cnt")
+      .where({ or: [{ buyerId: userId }, { sellerId: userId }] }),
+  );
+  const total = countResult?.cnt ?? 0;
 
   return {
     items: JSON.stringify(enriched),
@@ -473,31 +477,29 @@ export async function handleGetUnreadCount(req: cds.Request) {
 
   const entities = cds.entities("auto");
 
-  // Get all conversations for this user
-  const conversations = await cds.run(SELECT.from(entities["Conversation"]));
-  const userConvIds = conversations
-    .filter((c: Record<string, unknown>) => c.buyerId === userId || c.sellerId === userId)
-    .map((c: Record<string, unknown>) => c.ID as string);
+  // Get user's conversation IDs using CDS OR
+  const conversations = await cds.run(
+    SELECT.from(entities["Conversation"])
+      .columns("ID")
+      .where({ or: [{ buyerId: userId }, { sellerId: userId }] }),
+  );
+  const userConvIds = conversations.map((c: Record<string, unknown>) => c.ID as string);
 
   if (userConvIds.length === 0) {
     return { count: 0 };
   }
 
-  // Count unread messages across all conversations
-  let totalUnread = 0;
-  for (const convId of userConvIds) {
-    const result = await cds.run(
-      SELECT.one
-        .from(entities["ChatMessage"])
-        .columns("count(*) as cnt")
-        .where({
-          conversationId: convId,
-          deliveryStatus: { "!=": "read" },
-          senderId: { "!=": userId },
-        }),
-    );
-    totalUnread += result?.cnt ?? 0;
-  }
+  // Count unread messages across all user conversations in a single query
+  const result = await cds.run(
+    SELECT.one
+      .from(entities["ChatMessage"])
+      .columns("count(*) as cnt")
+      .where({
+        conversationId: { in: userConvIds },
+        deliveryStatus: { "!=": "read" },
+        senderId: { "!=": userId },
+      }),
+  );
 
-  return { count: totalUnread };
+  return { count: result?.cnt ?? 0 };
 }

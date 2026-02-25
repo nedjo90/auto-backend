@@ -382,9 +382,8 @@ describe("Chat Handler (Story 5-1, Task 2)", () => {
         .mockResolvedValueOnce([
           { ID: "conv-1", buyerId: "buyer-1", sellerId: "seller-1" },
           { ID: "conv-2", buyerId: "buyer-1", sellerId: "seller-2" },
-        ])
-        .mockResolvedValueOnce({ cnt: 3 }) // conv-1 unread
-        .mockResolvedValueOnce({ cnt: 1 }); // conv-2 unread
+        ]) // SELECT conversation IDs
+        .mockResolvedValueOnce({ cnt: 4 }); // single count across all conversations
 
       const req = makeReq({}, "buyer-1");
       const result = await handleGetUnreadCount(req);
