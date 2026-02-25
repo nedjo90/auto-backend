@@ -189,16 +189,16 @@ export async function handleGetPreferences(req: cds.Request) {
   const stored = await cds.run(SELECT.from(entities["NotificationPreference"]).where({ userId }));
 
   // Build complete list with defaults (all enabled unless overridden)
-  const storedMap = new Map<string, boolean>();
+  const storedMap = new Map<string, { id: string; enabled: boolean }>();
   for (const p of stored) {
-    storedMap.set(p.type as string, p.enabled as boolean);
+    storedMap.set(p.type as string, { id: p.ID as string, enabled: p.enabled as boolean });
   }
 
   const preferences: INotificationPreference[] = PREFERENCE_NOTIFICATION_TYPES.map((type) => ({
-    ID: stored.find((s: Record<string, unknown>) => s.type === type)?.ID || "",
+    ID: storedMap.get(type)?.id || "",
     userId,
     type,
-    enabled: storedMap.get(type) ?? true,
+    enabled: storedMap.get(type)?.enabled ?? true,
   }));
 
   return { preferences: JSON.stringify(preferences) };
