@@ -220,9 +220,9 @@ export async function handleGetListingPerformance(req: cds.Request) {
     const p = photoMap.get(l.ID as string) || { count: 0, primaryUrl: null };
     const compResult = comparisons[i];
     const marketComp = compResult.status === "fulfilled" ? compResult.value : null;
-    const marketPosition: MarketPricePosition | null = marketComp?.position || null;
+    const marketPosition: MarketPricePosition | null = marketComp?.position ?? null;
     const marketPercentageDiff: number | null = marketComp?.percentageDiff ?? null;
-    const marketDisplayText: string | null = marketComp?.displayText || null;
+    const marketDisplayText: string | null = marketComp?.displayText ?? null;
 
     let daysOnMarket: number | null = null;
     if (l.publishedAt) {
