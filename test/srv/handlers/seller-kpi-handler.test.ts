@@ -109,6 +109,7 @@ import {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockRun.mockReset(); // Also clear mockResolvedValueOnce queue
 });
 
 // ─── getAggregateKPIs ─────────────────────────────────────────────────────
@@ -336,24 +337,23 @@ describe("handleGetMetricDrilldown", () => {
     expect(drilldown.points[0]).toHaveProperty("value");
   });
 
-  it("returns totalViews drilldown for aggregate", async () => {
-    mockRun
-      .mockResolvedValueOnce([{ ID: LISTING_ID }]) // listings
-      .mockResolvedValueOnce([{ listingId: LISTING_ID, viewCount: 100, chatCount: 20 }]); // analytics
+  it("returns totalViews drilldown with empty points and insights", async () => {
+    mockRun.mockResolvedValueOnce([{ ID: LISTING_ID }]); // listings only (no analytics fetch)
 
     const req = makeReq({ metric: "totalViews", periodDays: 30 });
     const result: any = await handleGetMetricDrilldown(req);
     const drilldown = JSON.parse(result.drilldown);
 
     expect(drilldown.metric).toBe("totalViews");
-    expect(drilldown.points.length).toBeGreaterThanOrEqual(1);
+    expect(drilldown.points).toHaveLength(0); // No daily snapshots yet
     expect(drilldown.insights.length).toBeGreaterThanOrEqual(1);
+    expect(drilldown.insights).toEqual(
+      expect.arrayContaining([expect.stringContaining("prochainement")]),
+    );
   });
 
-  it("returns totalContacts drilldown for single listing", async () => {
-    mockRun
-      .mockResolvedValueOnce([{ ID: LISTING_ID }]) // listings
-      .mockResolvedValueOnce({ listingId: LISTING_ID, viewCount: 50, chatCount: 10 }); // analytics
+  it("returns totalContacts drilldown for single listing with empty points", async () => {
+    mockRun.mockResolvedValueOnce([{ ID: LISTING_ID }]); // listings only
 
     const req = makeReq({ metric: "totalContacts", listingId: LISTING_ID, periodDays: 30 });
     const result: any = await handleGetMetricDrilldown(req);
@@ -361,7 +361,8 @@ describe("handleGetMetricDrilldown", () => {
 
     expect(drilldown.metric).toBe("totalContacts");
     expect(drilldown.listingId).toBe(LISTING_ID);
-    expect(drilldown.points.length).toBeGreaterThanOrEqual(1);
+    expect(drilldown.points).toHaveLength(0); // No daily snapshots yet
+    expect(drilldown.insights.length).toBeGreaterThanOrEqual(1);
   });
 
   it("returns 403 for drilldown on listing not owned by seller", async () => {
@@ -374,7 +375,9 @@ describe("handleGetMetricDrilldown", () => {
 
   it("returns avgDaysOnline drilldown", async () => {
     const pastDate = new Date(Date.now() - 10 * 86400000).toISOString();
-    mockRun.mockResolvedValueOnce([{ publishedAt: pastDate }]);
+    mockRun.mockResolvedValueOnce([
+      { publishedAt: pastDate, soldAt: null, archivedAt: null, status: "published" },
+    ]);
 
     const req = makeReq({ metric: "avgDaysOnline", periodDays: 7 });
     const result: any = await handleGetMetricDrilldown(req);

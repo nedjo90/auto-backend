@@ -12,12 +12,17 @@ import {
   SELLER_KPI_METRICS,
   SELLER_KPI_PERIOD_DAYS,
   SELLER_LISTINGS_PAGE_SIZE,
-  SELLER_LISTING_SORT_COLUMNS,
   SELLER_DRILLDOWN_PERIODS,
   VISIBILITY_LABELS,
   DEFAULT_VISIBILITY_WEIGHTS,
 } from "@auto/shared";
 import { computeMarketComparison } from "../lib/market-price";
+
+/** Columns that exist on the Listing entity and can be used in DB ORDER BY. */
+const DB_SORTABLE_COLUMNS = ["price", "visibilityScore", "publishedAt"] as const;
+
+/** Columns computed from analytics that require in-memory sort. */
+const MEMORY_SORT_COLUMNS = ["viewCount", "chatCount", "daysOnMarket"] as const;
 
 // ─── getAggregateKPIs ───────────────────────────────────────────────────────
 
@@ -86,10 +91,8 @@ export async function handleGetAggregateKPIs(req: cds.Request) {
     avgDaysOnline = Math.round(totalDays / activeListings.length);
   }
 
-  // For trend calculation, we use simplified approach:
-  // Views/contacts trend would need time-series data that we don't have per-period.
-  // We'll use listing count trend as proxy and set views/contacts trend to 0 for now.
-  // A MetricHistory entity could be added for precise tracking in the future.
+  // Note: views/contacts/avgDaysOnline trends require daily snapshots (not yet implemented).
+  // We only compute trend for activeListings based on publish dates.
   const kpis: ISellerKpiSummary = {
     activeListings: buildKpiValue(activeListings.length, currentPublished, previousPublished),
     totalViews: { current: totalViews, previous: 0, trend: 0 },
@@ -135,21 +138,29 @@ export async function handleGetListingPerformance(req: cds.Request) {
     return { listings: JSON.stringify([]), total: 0 };
   }
 
-  // Validate sort column
-  const validSortBy = (SELLER_LISTING_SORT_COLUMNS as readonly string[]).includes(sortBy)
-    ? sortBy
-    : "publishedAt";
   const validSortDir = sortDir === "asc" ? "asc" : "desc";
+  const isDbSort = (DB_SORTABLE_COLUMNS as readonly string[]).includes(sortBy);
+  const isMemorySort = (MEMORY_SORT_COLUMNS as readonly string[]).includes(sortBy);
 
-  // Fetch listings
-  const listings = await cds.run(
-    SELECT.from(entities["Listing"])
-      .where({ sellerId: userId, status: "published" })
-      .orderBy(`${validSortBy} ${validSortDir}`)
-      .limit(top, skip),
-  );
+  // For DB-sortable columns, use ORDER BY. For analytics columns, fetch all and sort in memory.
+  let listings: Record<string, unknown>[];
+  if (isDbSort) {
+    listings = await cds.run(
+      SELECT.from(entities["Listing"])
+        .where({ sellerId: userId, status: "published" })
+        .orderBy(`${sortBy} ${validSortDir}`)
+        .limit(top, skip),
+    );
+  } else {
+    // Fetch all published listings (no DB sort for computed columns)
+    listings = await cds.run(
+      SELECT.from(entities["Listing"])
+        .where({ sellerId: userId, status: "published" })
+        .orderBy("publishedAt desc"),
+    );
+  }
 
-  const listingIds = listings.map((l: Record<string, unknown>) => l.ID as string);
+  const listingIds = listings.map((l) => l.ID as string);
 
   // Batch fetch analytics
   const analytics = await cds.run(
@@ -188,12 +199,28 @@ export async function handleGetListingPerformance(req: cds.Request) {
     }
   }
 
+  // Parallelize market comparison calls
+  const comparisons = await Promise.allSettled(
+    listings.map((l) =>
+      computeMarketComparison({
+        make: l.make as string | null,
+        model: l.model as string | null,
+        year: l.year as number | null,
+        mileage: l.mileage as number | null,
+        fuelType: l.fuelType as string | null,
+        price: l.price as number | null,
+      }),
+    ),
+  );
+
   const now = new Date();
 
-  const result: ISellerListingPerformance[] = [];
-  for (const l of listings) {
+  const result: ISellerListingPerformance[] = listings.map((l, i) => {
     const a = analyticsMap.get(l.ID as string) || { viewCount: 0, favoriteCount: 0, chatCount: 0 };
     const p = photoMap.get(l.ID as string) || { count: 0, primaryUrl: null };
+    const compResult = comparisons[i];
+    const marketPosition: MarketPricePosition | null =
+      compResult.status === "fulfilled" ? compResult.value?.position || null : null;
 
     let daysOnMarket: number | null = null;
     if (l.publishedAt) {
@@ -204,25 +231,8 @@ export async function handleGetListingPerformance(req: cds.Request) {
     }
 
     const score = (l.visibilityScore as number) || 0;
-    const visibilityLabel = getVisibilityLabel(score);
 
-    // Market position from cache or compute
-    let marketPosition: MarketPricePosition | null = null;
-    try {
-      const comparison = await computeMarketComparison({
-        make: l.make as string | null,
-        model: l.model as string | null,
-        year: l.year as number | null,
-        mileage: l.mileage as number | null,
-        fuelType: l.fuelType as string | null,
-        price: l.price as number | null,
-      });
-      marketPosition = comparison?.position || null;
-    } catch {
-      // Market comparison is best-effort
-    }
-
-    result.push({
+    return {
       ID: l.ID as string,
       make: (l.make as string) || null,
       model: (l.model as string) || null,
@@ -230,7 +240,7 @@ export async function handleGetListingPerformance(req: cds.Request) {
       price: (l.price as number) || null,
       status: l.status as string as ISellerListingPerformance["status"],
       visibilityScore: score,
-      visibilityLabel,
+      visibilityLabel: getVisibilityLabel(score),
       publishedAt: (l.publishedAt as string) || null,
       viewCount: a.viewCount,
       favoriteCount: a.favoriteCount,
@@ -239,10 +249,22 @@ export async function handleGetListingPerformance(req: cds.Request) {
       photoCount: p.count,
       primaryPhotoUrl: p.primaryUrl,
       marketPosition,
+    };
+  });
+
+  // In-memory sort for analytics/computed columns
+  if (isMemorySort) {
+    result.sort((a, b) => {
+      const aVal = (a[sortBy as keyof ISellerListingPerformance] as number) ?? 0;
+      const bVal = (b[sortBy as keyof ISellerListingPerformance] as number) ?? 0;
+      return validSortDir === "asc" ? aVal - bVal : bVal - aVal;
     });
   }
 
-  return { listings: JSON.stringify(result), total };
+  // Apply pagination for in-memory sorted results
+  const paged = isMemorySort ? result.slice(skip, skip + top) : result;
+
+  return { listings: JSON.stringify(paged), total };
 }
 
 // ─── getMetricDrilldown ─────────────────────────────────────────────────────
@@ -273,32 +295,32 @@ export async function handleGetMetricDrilldown(req: cds.Request) {
 
   const entities = cds.entities("auto");
   const now = new Date();
-  const startDate = new Date(now.getTime() - validPeriod * 86400000);
+  const startMs = now.getTime() - validPeriod * 86400000;
 
   // Build time series points based on metric type
   const points: IMetricDrilldownPoint[] = [];
   const insights: string[] = [];
 
   if (metric === "activeListings") {
-    // Count published listings per day over the period
     const listings = await cds.run(
       SELECT.from(entities["Listing"])
         .columns("publishedAt", "soldAt", "archivedAt", "status")
         .where({ sellerId: userId, status: { in: ["published", "sold", "archived"] } }),
     );
 
-    for (let d = new Date(startDate); d <= now; d.setDate(d.getDate() + 1)) {
+    // Use UTC ms arithmetic to avoid DST issues
+    for (let t = startMs; t <= now.getTime(); t += 86400000) {
+      const d = new Date(t);
       const dateStr = d.toISOString().split("T")[0];
-      const dayEnd = new Date(d);
-      dayEnd.setHours(23, 59, 59, 999);
+      const dayEndMs = t + 86400000 - 1;
 
       const activeOnDay = listings.filter((l: Record<string, unknown>) => {
-        const pub = l.publishedAt ? new Date(l.publishedAt as string) : null;
-        const sold = l.soldAt ? new Date(l.soldAt as string) : null;
-        const archived = l.archivedAt ? new Date(l.archivedAt as string) : null;
-        if (!pub || pub > dayEnd) return false;
-        if (sold && sold <= dayEnd) return false;
-        if (archived && archived <= dayEnd) return false;
+        const pubMs = l.publishedAt ? new Date(l.publishedAt as string).getTime() : null;
+        const soldMs = l.soldAt ? new Date(l.soldAt as string).getTime() : null;
+        const archivedMs = l.archivedAt ? new Date(l.archivedAt as string).getTime() : null;
+        if (!pubMs || pubMs > dayEndMs) return false;
+        if (soldMs && soldMs <= dayEndMs) return false;
+        if (archivedMs && archivedMs <= dayEndMs) return false;
         return true;
       }).length;
 
@@ -317,8 +339,7 @@ export async function handleGetMetricDrilldown(req: cds.Request) {
       }
     }
   } else if (metric === "totalViews" || metric === "totalContacts") {
-    // For views/contacts, we aggregate from analytics (no daily time series without a log table)
-    // Return current total as a single point per listing or aggregate
+    // No daily time-series data available; return empty points with insight only.
     const whereClause: Record<string, unknown> = { sellerId: userId, status: "published" };
     const listings = await cds.run(
       SELECT.from(entities["Listing"]).columns("ID").where(whereClause),
@@ -326,62 +347,45 @@ export async function handleGetMetricDrilldown(req: cds.Request) {
     const listingIds = listings.map((l: Record<string, unknown>) => l.ID as string);
 
     if (listingIds.length > 0 && listingId) {
-      // Single listing drilldown
       if (!listingIds.includes(listingId)) {
         return req.error(403, "Annonce non trouvée ou non autorisée");
       }
-
-      const analytics = await cds.run(
-        SELECT.one.from(entities["ListingAnalytics"]).where({ listingId }),
-      );
-      const value =
-        metric === "totalViews"
-          ? (analytics?.viewCount as number) || 0
-          : (analytics?.chatCount as number) || 0;
-
-      // Since we don't have daily logs, emit a flat line for now
-      for (let d = new Date(startDate); d <= now; d.setDate(d.getDate() + 1)) {
-        points.push({ date: d.toISOString().split("T")[0], value });
-      }
-    } else if (listingIds.length > 0) {
-      // Aggregate drilldown
-      const analytics = await cds.run(
-        SELECT.from(entities["ListingAnalytics"]).where({ listingId: { in: listingIds } }),
-      );
-      let total = 0;
-      for (const a of analytics) {
-        total +=
-          metric === "totalViews" ? (a.viewCount as number) || 0 : (a.chatCount as number) || 0;
-      }
-
-      for (let d = new Date(startDate); d <= now; d.setDate(d.getDate() + 1)) {
-        points.push({ date: d.toISOString().split("T")[0], value: total });
-      }
     }
 
+    // Return empty points - no daily snapshots available yet
     if (metric === "totalViews") {
       insights.push(
         "Les vues dépendent de la qualité de vos photos et de votre score de visibilité.",
       );
+      insights.push("Le suivi journalier détaillé sera disponible prochainement.");
     } else {
       insights.push(
         "Un nombre de contacts élevé indique un prix attractif et une annonce bien rédigée.",
       );
+      insights.push("Le suivi journalier détaillé sera disponible prochainement.");
     }
   } else if (metric === "avgDaysOnline") {
+    // Include sold/archived listings to get accurate historical average
     const listings = await cds.run(
       SELECT.from(entities["Listing"])
-        .columns("publishedAt")
-        .where({ sellerId: userId, status: "published" }),
+        .columns("publishedAt", "soldAt", "archivedAt", "status")
+        .where({ sellerId: userId, status: { in: ["published", "sold", "archived"] } }),
     );
 
-    for (let d = new Date(startDate); d <= now; d.setDate(d.getDate() + 1)) {
-      const dayEnd = new Date(d);
-      dayEnd.setHours(23, 59, 59, 999);
+    for (let t = startMs; t <= now.getTime(); t += 86400000) {
+      const d = new Date(t);
+      const dateStr = d.toISOString().split("T")[0];
+      const dayEndMs = t + 86400000 - 1;
 
+      // Only count listings that were active (published) on this day
       const activePubs = listings.filter((l: Record<string, unknown>) => {
-        const pub = l.publishedAt ? new Date(l.publishedAt as string) : null;
-        return pub && pub <= dayEnd;
+        const pubMs = l.publishedAt ? new Date(l.publishedAt as string).getTime() : null;
+        const soldMs = l.soldAt ? new Date(l.soldAt as string).getTime() : null;
+        const archivedMs = l.archivedAt ? new Date(l.archivedAt as string).getTime() : null;
+        if (!pubMs || pubMs > dayEndMs) return false;
+        if (soldMs && soldMs <= dayEndMs) return false;
+        if (archivedMs && archivedMs <= dayEndMs) return false;
+        return true;
       });
 
       if (activePubs.length > 0) {
@@ -389,15 +393,15 @@ export async function handleGetMetricDrilldown(req: cds.Request) {
         for (const l of activePubs) {
           totalDays += Math.max(
             0,
-            Math.floor((dayEnd.getTime() - new Date(l.publishedAt as string).getTime()) / 86400000),
+            Math.floor((dayEndMs - new Date(l.publishedAt as string).getTime()) / 86400000),
           );
         }
         points.push({
-          date: d.toISOString().split("T")[0],
+          date: dateStr,
           value: Math.round(totalDays / activePubs.length),
         });
       } else {
-        points.push({ date: d.toISOString().split("T")[0], value: 0 });
+        points.push({ date: dateStr, value: 0 });
       }
     }
 
