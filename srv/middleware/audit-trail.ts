@@ -28,6 +28,7 @@ export const AUDITABLE_ACTIONS = [
   "payment.processed",
   "payment.refunded",
   // Moderation operations
+  "moderation.report_submitted",
   "moderation.action_taken",
   "moderation.appeal_reviewed",
   // Legal operations
