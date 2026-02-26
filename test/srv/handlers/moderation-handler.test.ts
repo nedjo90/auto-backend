@@ -21,6 +21,8 @@ jest.mock("@sap/cds", () => {
         Report: "Report",
         ConfigReportReason: "ConfigReportReason",
         Listing: "Listing",
+        User: "User",
+        Conversation: "Conversation",
       })),
       run: (...args: any[]) => mockRun(...args),
       log: jest.fn(() => mockLog),
@@ -215,6 +217,52 @@ describe("handleSubmitReport", () => {
     });
     await handleSubmitReport(req);
     expect(req.error).toHaveBeenCalledWith(400, "Vous ne pouvez pas signaler votre propre annonce");
+  });
+
+  it("returns 404 when user target does not exist", async () => {
+    mockRun
+      .mockResolvedValueOnce(MOCK_REASON) // reason
+      .mockResolvedValueOnce(null); // user not found
+    const req = makeReq({
+      targetType: "user",
+      targetId: VALID_TARGET_ID,
+      reasonId: VALID_REASON_ID,
+      description: VALID_DESCRIPTION,
+    });
+    await handleSubmitReport(req);
+    expect(req.error).toHaveBeenCalledWith(404, "Utilisateur introuvable");
+  });
+
+  it("returns 400 when user tries to report themselves", async () => {
+    const selfId = "c0000000-0000-0000-0000-000000000001";
+    mockRun
+      .mockResolvedValueOnce(MOCK_REASON) // reason
+      .mockResolvedValueOnce({ ID: selfId }); // user found (is self)
+    const req = makeReq(
+      {
+        targetType: "user",
+        targetId: selfId,
+        reasonId: VALID_REASON_ID,
+        description: VALID_DESCRIPTION,
+      },
+      selfId,
+    );
+    await handleSubmitReport(req);
+    expect(req.error).toHaveBeenCalledWith(400, "Vous ne pouvez pas vous signaler vous-même");
+  });
+
+  it("returns 404 when chat target does not exist", async () => {
+    mockRun
+      .mockResolvedValueOnce(MOCK_REASON) // reason
+      .mockResolvedValueOnce(null); // conversation not found
+    const req = makeReq({
+      targetType: "chat",
+      targetId: VALID_TARGET_ID,
+      reasonId: VALID_REASON_ID,
+      description: VALID_DESCRIPTION,
+    });
+    await handleSubmitReport(req);
+    expect(req.error).toHaveBeenCalledWith(404, "Conversation introuvable");
   });
 
   it("returns 429 when rate limit is exceeded", async () => {

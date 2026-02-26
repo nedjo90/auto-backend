@@ -67,7 +67,7 @@ export async function handleSubmitReport(req: cds.Request) {
     return req.error(400, "Raison de signalement invalide ou inactive");
   }
 
-  // Prevent self-reporting (only for listing targets)
+  // Validate target exists and prevent self-reporting
   if (targetType === "listing") {
     const listing = await cds.run(
       SELECT.one.from(entities["Listing"]).columns("sellerId").where({ ID: targetId }),
@@ -77,6 +77,23 @@ export async function handleSubmitReport(req: cds.Request) {
     }
     if (listing.sellerId === userId) {
       return req.error(400, "Vous ne pouvez pas signaler votre propre annonce");
+    }
+  } else if (targetType === "user") {
+    const targetUser = await cds.run(
+      SELECT.one.from(entities["User"]).columns("ID").where({ ID: targetId }),
+    );
+    if (!targetUser) {
+      return req.error(404, "Utilisateur introuvable");
+    }
+    if (targetId === userId) {
+      return req.error(400, "Vous ne pouvez pas vous signaler vous-même");
+    }
+  } else if (targetType === "chat") {
+    const conversation = await cds.run(
+      SELECT.one.from(entities["Conversation"]).columns("ID").where({ ID: targetId }),
+    );
+    if (!conversation) {
+      return req.error(404, "Conversation introuvable");
     }
   }
 
