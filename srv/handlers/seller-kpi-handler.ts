@@ -219,8 +219,10 @@ export async function handleGetListingPerformance(req: cds.Request) {
     const a = analyticsMap.get(l.ID as string) || { viewCount: 0, favoriteCount: 0, chatCount: 0 };
     const p = photoMap.get(l.ID as string) || { count: 0, primaryUrl: null };
     const compResult = comparisons[i];
-    const marketPosition: MarketPricePosition | null =
-      compResult.status === "fulfilled" ? compResult.value?.position || null : null;
+    const marketComp = compResult.status === "fulfilled" ? compResult.value : null;
+    const marketPosition: MarketPricePosition | null = marketComp?.position || null;
+    const marketPercentageDiff: number | null = marketComp?.percentageDiff ?? null;
+    const marketDisplayText: string | null = marketComp?.displayText || null;
 
     let daysOnMarket: number | null = null;
     if (l.publishedAt) {
@@ -249,6 +251,9 @@ export async function handleGetListingPerformance(req: cds.Request) {
       photoCount: p.count,
       primaryPhotoUrl: p.primaryUrl,
       marketPosition,
+      marketPercentageDiff,
+      marketDisplayText,
+      marketIsEstimation: marketPosition !== null && marketPosition !== "unavailable",
     };
   });
 

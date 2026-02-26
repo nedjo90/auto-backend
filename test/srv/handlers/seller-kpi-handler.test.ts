@@ -240,6 +240,9 @@ describe("handleGetListingPerformance", () => {
     expect(listings[0].primaryPhotoUrl).toBe("https://cdn.example.com/photo1.jpg");
     expect(listings[0].visibilityLabel).toBe("Très documenté");
     expect(listings[0].marketPosition).toBe("aligned");
+    expect(listings[0].marketPercentageDiff).toBeDefined();
+    expect(listings[0].marketDisplayText).toBeDefined();
+    expect(listings[0].marketIsEstimation).toBe(true);
     expect(listings[0].daysOnMarket).toBeGreaterThanOrEqual(4);
     expect((result as any).total).toBe(1);
   });
