@@ -14,6 +14,7 @@ import {
   handleReactivateAccount,
   handleDismissReport,
 } from "./handlers/moderation-action-handler";
+import { handleGetSellerHistory } from "./handlers/moderation-seller-history-handler";
 
 export default class ModerationServiceHandler extends cds.ApplicationService {
   async init() {
@@ -28,6 +29,7 @@ export default class ModerationServiceHandler extends cds.ApplicationService {
     this.on("reactivateListing", handleReactivateListing);
     this.on("reactivateAccount", handleReactivateAccount);
     this.on("dismissReport", handleDismissReport);
+    this.on("getSellerHistory", handleGetSellerHistory);
     await super.init();
   }
 }

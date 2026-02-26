@@ -128,4 +128,10 @@ service ModerationService {
     actionId : String(36);
     message  : String;
   };
+
+  /** Moderator-only: fetch seller moderation history with pattern detection */
+  @requires: 'moderator'
+  action getSellerHistory(
+    sellerId : String(36) not null
+  ) returns LargeString;
 }
