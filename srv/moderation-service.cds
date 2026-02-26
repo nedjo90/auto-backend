@@ -58,4 +58,74 @@ service ModerationService {
     success : Boolean;
     status  : String(20);
   };
+
+  /** Moderator-only: deactivate (suspend) a listing */
+  @requires: 'moderator'
+  action deactivateListing(
+    reportId  : String(36) not null,
+    listingId : String(36) not null,
+    reason    : String(1000)
+  ) returns {
+    success  : Boolean;
+    actionId : String(36);
+    message  : String;
+  };
+
+  /** Moderator-only: send a warning to a user */
+  @requires: 'moderator'
+  action sendWarning(
+    reportId       : String(36) not null,
+    userId         : String(36) not null,
+    warningMessage : String(1000)
+  ) returns {
+    success  : Boolean;
+    actionId : String(36);
+    message  : String;
+  };
+
+  /** Moderator-only: deactivate (suspend) a user account */
+  @requires: 'moderator'
+  action deactivateAccount(
+    reportId  : String(36) not null,
+    userId    : String(36) not null,
+    reason    : String(1000),
+    confirmed : Boolean not null
+  ) returns {
+    success  : Boolean;
+    actionId : String(36);
+    message  : String;
+  };
+
+  /** Moderator-only: reactivate a suspended listing */
+  @requires: 'moderator'
+  action reactivateListing(
+    listingId : String(36) not null,
+    reason    : String(1000)
+  ) returns {
+    success  : Boolean;
+    actionId : String(36);
+    message  : String;
+  };
+
+  /** Moderator-only: reactivate a suspended user account */
+  @requires: 'moderator'
+  action reactivateAccount(
+    userId : String(36) not null,
+    reason : String(1000)
+  ) returns {
+    success  : Boolean;
+    actionId : String(36);
+    message  : String;
+  };
+
+  /** Moderator-only: dismiss a report */
+  @requires: 'moderator'
+  action dismissReport(
+    reportId : String(36) not null,
+    reason   : String(1000)
+  ) returns {
+    success  : Boolean;
+    actionId : String(36);
+    message  : String;
+  };
 }

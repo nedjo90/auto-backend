@@ -6,6 +6,14 @@ import {
   handleGetReportDetail,
   handleAssignReport,
 } from "./handlers/moderation-queue-handler";
+import {
+  handleDeactivateListing,
+  handleSendWarning,
+  handleDeactivateAccount,
+  handleReactivateListing,
+  handleReactivateAccount,
+  handleDismissReport,
+} from "./handlers/moderation-action-handler";
 
 export default class ModerationServiceHandler extends cds.ApplicationService {
   async init() {
@@ -14,6 +22,12 @@ export default class ModerationServiceHandler extends cds.ApplicationService {
     this.on("getReportMetrics", handleGetReportMetrics);
     this.on("getReportDetail", handleGetReportDetail);
     this.on("assignReport", handleAssignReport);
+    this.on("deactivateListing", handleDeactivateListing);
+    this.on("sendWarning", handleSendWarning);
+    this.on("deactivateAccount", handleDeactivateAccount);
+    this.on("reactivateListing", handleReactivateListing);
+    this.on("reactivateAccount", handleReactivateAccount);
+    this.on("dismissReport", handleDismissReport);
     await super.init();
   }
 }
