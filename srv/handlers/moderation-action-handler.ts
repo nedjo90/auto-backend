@@ -246,14 +246,14 @@ export async function handleSendWarning(req: cds.Request) {
 
 export async function handleDeactivateAccount(req: cds.Request) {
   const { reportId, userId, reason, confirmed } = req.data as {
-    reportId: string;
+    reportId?: string;
     userId: string;
     reason?: string;
     confirmed: boolean;
   };
   const moderatorId = req.user?.id;
   if (!moderatorId) return req.error(401, "Authentification requise");
-  if (!validateUUID(reportId, "Identifiant de rapport", req)) return;
+  if (reportId && !validateUUID(reportId, "Identifiant de rapport", req)) return;
   if (!validateUUID(userId, "Identifiant utilisateur", req)) return;
 
   // Double confirmation required (CR-Fix #4: documented as intentional server-side boolean check;
@@ -264,9 +264,11 @@ export async function handleDeactivateAccount(req: cds.Request) {
 
   const entities = cds.entities("auto");
 
-  // CR-Fix #7: Validate report exists and is actionable
-  const report = await validateReport(entities, reportId, req);
-  if (!report) return;
+  // CR-Fix #7: Validate report exists and is actionable (skip if no report context, e.g. escalation from seller history)
+  if (reportId) {
+    const report = await validateReport(entities, reportId, req);
+    if (!report) return;
+  }
 
   // Validate user exists and is active
   const user = await cds.run(
@@ -291,7 +293,7 @@ export async function handleDeactivateAccount(req: cds.Request) {
 
   // Create action record
   const actionId = await createModerationAction(entities, {
-    reportId,
+    reportId: reportId || null,
     moderatorId,
     actionType: "deactivate_account",
     reason: reason || null,
@@ -299,8 +301,10 @@ export async function handleDeactivateAccount(req: cds.Request) {
     targetId: userId,
   });
 
-  // Update report status
-  await updateReportStatus(entities, reportId, "treated");
+  // Update report status (skip if no report context)
+  if (reportId) {
+    await updateReportStatus(entities, reportId, "treated");
+  }
 
   LOG.info(`Account ${userId} suspended by moderator ${moderatorId}`);
 

@@ -246,6 +246,7 @@ describe("handleGetSellerHistory", () => {
     expect(parsed.statistics.warningsReceived).toBe(0);
     expect(parsed.statistics.suspensions).toBe(0);
     expect(parsed.statistics.certificationRate).toBe(0);
+    expect(parsed.sellerRating).toBeNull();
     expect(parsed.patterns).toEqual([]);
     expect(parsed.timeline).toEqual([]);
   });
@@ -479,6 +480,17 @@ describe("handleGetSellerHistory", () => {
     expect(frequentPattern).toBeDefined();
     expect(frequentPattern.severity).toBe("critical");
     expect(frequentPattern.count).toBe(6);
+  });
+
+  it("includes seller rating when available", async () => {
+    setupMockRun({
+      sellerRating: { overallRating: 4.2 },
+    });
+
+    const req = makeReq({ sellerId: SELLER_ID });
+    const result = await handleGetSellerHistory(req);
+    const parsed = JSON.parse(result);
+    expect(parsed.sellerRating).toBe(4.2);
   });
 
   it("combines reports from both user and listing targets", async () => {

@@ -86,7 +86,7 @@ service ModerationService {
   /** Moderator-only: deactivate (suspend) a user account */
   @requires: 'moderator'
   action deactivateAccount(
-    reportId  : String(36) not null,
+    reportId  : String(36),
     userId    : String(36) not null,
     reason    : String(1000),
     confirmed : Boolean not null

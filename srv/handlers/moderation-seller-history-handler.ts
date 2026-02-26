@@ -258,59 +258,60 @@ export async function handleGetSellerHistory(req: cds.Request) {
   const listingIds: string[] = listings.map((l: { ID: string }) => l.ID);
 
   // Fetch all reports against this seller or their listings in parallel
-  const [directReports, listingReports, actions, listingActions, , thresholds] = await Promise.all([
-    // Reports targeting the seller directly
-    cds.run(
-      SELECT.from(entities["Report"])
-        .columns("ID", "reasonId", "severity", "description", "status", "assignedTo", "createdAt")
-        .where({ targetType: "user", targetId: sellerId })
-        .orderBy("createdAt desc"),
-    ),
-    // Reports targeting seller's listings
-    listingIds.length > 0
-      ? cds.run(
-          SELECT.from(entities["Report"])
-            .columns(
-              "ID",
-              "reasonId",
-              "severity",
-              "description",
-              "status",
-              "assignedTo",
-              "createdAt",
-            )
-            .where({ targetType: "listing", targetId: { in: listingIds } })
-            .orderBy("createdAt desc"),
+  const [directReports, listingReports, actions, listingActions, sellerRatingRow, thresholds] =
+    await Promise.all([
+      // Reports targeting the seller directly
+      cds.run(
+        SELECT.from(entities["Report"])
+          .columns("ID", "reasonId", "severity", "description", "status", "assignedTo", "createdAt")
+          .where({ targetType: "user", targetId: sellerId })
+          .orderBy("createdAt desc"),
+      ),
+      // Reports targeting seller's listings
+      listingIds.length > 0
+        ? cds.run(
+            SELECT.from(entities["Report"])
+              .columns(
+                "ID",
+                "reasonId",
+                "severity",
+                "description",
+                "status",
+                "assignedTo",
+                "createdAt",
+              )
+              .where({ targetType: "listing", targetId: { in: listingIds } })
+              .orderBy("createdAt desc"),
+          )
+        : Promise.resolve([]),
+      // Actions targeting the seller directly
+      cds.run(
+        SELECT.from(entities["ModerationAction"])
+          .columns("ID", "reportId", "moderatorId", "actionType", "reason", "createdAt")
+          .where({ targetType: "user", targetId: sellerId })
+          .orderBy("createdAt desc"),
+      ),
+      // Actions targeting seller's listings
+      listingIds.length > 0
+        ? cds.run(
+            SELECT.from(entities["ModerationAction"])
+              .columns("ID", "reportId", "moderatorId", "actionType", "reason", "createdAt")
+              .where({ targetType: "listing", targetId: { in: listingIds } })
+              .orderBy("createdAt desc"),
+          )
+        : Promise.resolve([]),
+      // Seller rating
+      cds
+        .run(
+          SELECT.one
+            .from(entities["SellerRating"])
+            .columns("overallRating")
+            .where({ user_ID: sellerId }),
         )
-      : Promise.resolve([]),
-    // Actions targeting the seller directly
-    cds.run(
-      SELECT.from(entities["ModerationAction"])
-        .columns("ID", "reportId", "moderatorId", "actionType", "reason", "createdAt")
-        .where({ targetType: "user", targetId: sellerId })
-        .orderBy("createdAt desc"),
-    ),
-    // Actions targeting seller's listings
-    listingIds.length > 0
-      ? cds.run(
-          SELECT.from(entities["ModerationAction"])
-            .columns("ID", "reportId", "moderatorId", "actionType", "reason", "createdAt")
-            .where({ targetType: "listing", targetId: { in: listingIds } })
-            .orderBy("createdAt desc"),
-        )
-      : Promise.resolve([]),
-    // Seller rating
-    cds
-      .run(
-        SELECT.one
-          .from(entities["SellerRating"])
-          .columns("overallRating")
-          .where({ user_ID: sellerId }),
-      )
-      .catch(() => null),
-    // Load configurable thresholds
-    loadThresholds(entities),
-  ]);
+        .catch(() => null),
+      // Load configurable thresholds
+      loadThresholds(entities),
+    ]);
 
   const allReports = [...directReports, ...listingReports];
   const allActions = [...actions, ...listingActions];
@@ -366,11 +367,17 @@ export async function handleGetSellerHistory(req: cds.Request) {
     [seller.firstName, seller.lastName].filter(Boolean).join(" ") ||
     "Vendeur";
 
+  const sellerRating =
+    sellerRatingRow && typeof sellerRatingRow.overallRating === "number"
+      ? sellerRatingRow.overallRating
+      : null;
+
   const result: ISellerHistory = {
     sellerId: seller.ID,
     displayName,
     memberSince: seller.createdAt,
     accountStatus: seller.status || "active",
+    sellerRating,
     statistics,
     patterns,
     timeline,
