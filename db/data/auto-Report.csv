@@ -1,0 +1,3 @@
+ID;reporterId;targetType;targetId;reasonId;severity;description;status;assignedTo
+a5000001-0000-0000-0000-000000000001;33333333-3333-3333-3333-333333333333;listing;b0000001-0000-0000-0000-000000000014;g0000001-0000-0000-0000-000000000004;medium;Les photos ne correspondent pas au vehicule decrit. Le kilometrage semble aussi incorrect.;pending;
+a5000001-0000-0000-0000-000000000002;33333333-3333-3333-3333-333333333333;user;66666666-6666-6666-6666-666666666666;g0000001-0000-0000-0000-000000000002;high;Ce vendeur a tente de me vendre un vehicule avec des documents falsifies. Comportement suspect.;treated;44444444-4444-4444-4444-444444444444
