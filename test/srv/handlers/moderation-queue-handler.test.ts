@@ -400,6 +400,28 @@ describe("handleGetReportDetail", () => {
     expect(JSON.parse(detail.targetData).firstName).toBe("Spammer");
   });
 
+  it("returns detail for chat target", async () => {
+    const chatReport = { ...MOCK_REPORT, targetType: "chat" };
+    mockRun
+      .mockResolvedValueOnce(chatReport) // report
+      .mockResolvedValueOnce({ ID: REASON_ID, label: "Harcèlement" }) // reason
+      .mockResolvedValueOnce({
+        ID: REPORTER_ID,
+        firstName: "Jean",
+        lastName: "Dupont",
+        email: "jean@test.com",
+      }) // reporter
+      .mockResolvedValueOnce({ cnt: 0 }) // related
+      .mockResolvedValueOnce({ ID: TARGET_ID, buyerId: "x", sellerId: "y" }); // conversation
+
+    const req = makeReq({ reportId: REPORT_ID });
+    const result = await handleGetReportDetail(req);
+    const detail = JSON.parse(result);
+
+    expect(detail.targetType).toBe("chat");
+    expect(detail.targetData).toBeTruthy();
+  });
+
   it("returns null targetData when target entity not found", async () => {
     mockRun
       .mockResolvedValueOnce(MOCK_REPORT) // report

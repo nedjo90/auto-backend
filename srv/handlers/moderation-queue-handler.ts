@@ -20,14 +20,7 @@ const VALID_SEVERITIES = ["critical", "high", "medium", "low"];
 // ─── getReportQueue ──────────────────────────────────────────────────────────
 
 export async function handleGetReportQueue(req: cds.Request) {
-  const {
-    status,
-    targetType,
-    severity,
-    sortBy,
-    skip = 0,
-    top = REPORTS_PAGE_SIZE,
-  } = req.data as {
+  const data = req.data as {
     status?: string;
     targetType?: string;
     severity?: string;
@@ -35,6 +28,13 @@ export async function handleGetReportQueue(req: cds.Request) {
     skip?: number;
     top?: number;
   };
+
+  const status = data.status;
+  const targetType = data.targetType;
+  const severity = data.severity;
+  const sortBy = data.sortBy;
+  const skip = Math.max(0, data.skip ?? 0);
+  const top = Math.min(100, Math.max(1, data.top ?? REPORTS_PAGE_SIZE));
 
   const entities = cds.entities("auto");
   const conditions: Record<string, unknown>[] = [];
