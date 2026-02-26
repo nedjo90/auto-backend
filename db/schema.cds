@@ -12,3 +12,4 @@ using from './schema/declaration';
 using from './schema/payment';
 using from './schema/favorite';
 using from './schema/chat';
+using from './schema/market-watch';

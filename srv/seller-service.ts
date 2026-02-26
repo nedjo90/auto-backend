@@ -44,6 +44,7 @@ import {
 } from "./lib/photo-storage";
 import { signalrClient, SIGNALR_HUBS } from "./lib/signalr-client";
 import { notifyPriceChange } from "./lib/favorite-notifications";
+import { recordPriceChange } from "./handlers/market-watch-handler";
 import type { VisibilityScoreResult } from "@auto/shared";
 import {
   validateListingField,
@@ -70,6 +71,12 @@ import {
   handleGetListingPerformance,
   handleGetMetricDrilldown,
 } from "./handlers/seller-kpi-handler";
+import {
+  handleAddToMarketWatch,
+  handleRemoveFromMarketWatch,
+  handleGetMarketWatchList,
+  handleCheckMarketWatches,
+} from "./handlers/market-watch-handler";
 
 const LOG = cds.log("seller");
 
@@ -347,6 +354,10 @@ export default class SellerServiceHandler extends cds.ApplicationService {
     this.on("getAggregateKPIs", handleGetAggregateKPIs);
     this.on("getListingPerformance", handleGetListingPerformance);
     this.on("getMetricDrilldown", handleGetMetricDrilldown);
+    this.on("addToMarketWatch", handleAddToMarketWatch);
+    this.on("removeFromMarketWatch", handleRemoveFromMarketWatch);
+    this.on("getMarketWatchList", handleGetMarketWatchList);
+    this.on("checkMarketWatches", handleCheckMarketWatches);
     this.before("UPDATE", "Declarations", this.rejectDeclarationUpdate);
     this.before("DELETE", "Declarations", this.rejectDeclarationDelete);
     await super.init();
@@ -1089,6 +1100,10 @@ export default class SellerServiceHandler extends cds.ApplicationService {
           Number(listing.price),
           newPrice,
         ).catch((err: unknown) => LOG.warn("Failed to send price change notifications:", err));
+        // Record price history and notify market watchers (Story 6-3)
+        recordPriceChange(listingId, newPrice, Number(listing.price)).catch((err: unknown) =>
+          LOG.warn("Failed to record price change:", err),
+        );
       }
     }
 

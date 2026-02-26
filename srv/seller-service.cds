@@ -275,4 +275,36 @@ service SellerService {
   ) returns {
     drilldown : LargeString;   // JSON: IMetricDrilldownData
   };
+
+  /** Add a listing to market watch (Story 6-3) */
+  action addToMarketWatch(
+    listingId : String(36) not null,
+    notes     : String(500)
+  ) returns {
+    watching : Boolean;
+    watchId  : String(36);
+  };
+
+  /** Remove a listing from market watch (Story 6-3) */
+  action removeFromMarketWatch(
+    listingId : String(36) not null
+  ) returns {
+    success : Boolean;
+  };
+
+  /** Get market watch list with enriched listing data (Story 6-3) */
+  action getMarketWatchList(
+    skip : Integer,
+    top  : Integer
+  ) returns {
+    items : LargeString;   // JSON array of IMarketWatchEnriched
+    total : Integer;
+  };
+
+  /** Check if listings are being watched (Story 6-3) */
+  action checkMarketWatches(
+    listingIds : LargeString not null   // JSON array of listing IDs
+  ) returns {
+    results : LargeString;   // JSON array of IMarketWatchCheckResult
+  };
 }
