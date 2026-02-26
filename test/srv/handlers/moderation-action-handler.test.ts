@@ -9,6 +9,9 @@ const mockAuditLog = jest.fn<any, any[]>().mockResolvedValue(undefined);
 const mockExtractAuditContext = jest.fn<any, any[]>(() => ({
   actorId: "mod-1",
   actorRole: "moderator",
+  ipAddress: "127.0.0.1",
+  userAgent: "test-agent",
+  requestId: "req-001",
 }));
 const mockCreateNotification = jest.fn<any, any[]>().mockResolvedValue(undefined);
 
@@ -88,6 +91,14 @@ const LISTING_ID = "b0000000-0000-0000-0000-000000000001";
 const USER_ID = "c0000000-0000-0000-0000-000000000001";
 const SELLER_ID = "d0000000-0000-0000-0000-000000000001";
 
+// Shared report mock for validateReport helper
+const PENDING_REPORT = {
+  ID: REPORT_ID,
+  status: "pending",
+  targetType: "listing",
+  targetId: LISTING_ID,
+};
+
 // ─── Tests: deactivateListing ───────────────────────────────────────────────
 
 describe("handleDeactivateListing", () => {
@@ -114,22 +125,42 @@ describe("handleDeactivateListing", () => {
     expect(req.error).toHaveBeenCalledWith(400, "Identifiant d'annonce invalide");
   });
 
+  it("returns 404 when report not found", async () => {
+    mockRun.mockResolvedValueOnce(null); // validateReport: report not found
+    const req = makeReq({ reportId: REPORT_ID, listingId: LISTING_ID });
+    await handleDeactivateListing(req);
+    expect(req.error).toHaveBeenCalledWith(404, "Rapport introuvable");
+  });
+
+  it("returns 400 when report already treated", async () => {
+    mockRun.mockResolvedValueOnce({ ...PENDING_REPORT, status: "treated" });
+    const req = makeReq({ reportId: REPORT_ID, listingId: LISTING_ID });
+    await handleDeactivateListing(req);
+    expect(req.error).toHaveBeenCalledWith(400, "Rapport deja traite ou rejete");
+  });
+
   it("returns 404 when listing not found", async () => {
-    mockRun.mockResolvedValueOnce(null);
+    mockRun
+      .mockResolvedValueOnce(PENDING_REPORT) // validateReport
+      .mockResolvedValueOnce(null); // listing lookup
     const req = makeReq({ reportId: REPORT_ID, listingId: LISTING_ID });
     await handleDeactivateListing(req);
     expect(req.error).toHaveBeenCalledWith(404, "Annonce introuvable");
   });
 
   it("returns 400 when listing already suspended", async () => {
-    mockRun.mockResolvedValueOnce({ ID: LISTING_ID, sellerId: SELLER_ID, status: "suspended" });
+    mockRun
+      .mockResolvedValueOnce(PENDING_REPORT) // validateReport
+      .mockResolvedValueOnce({ ID: LISTING_ID, sellerId: SELLER_ID, status: "suspended" });
     const req = makeReq({ reportId: REPORT_ID, listingId: LISTING_ID });
     await handleDeactivateListing(req);
     expect(req.error).toHaveBeenCalledWith(400, "Annonce deja suspendue");
   });
 
   it("returns 400 when listing not published", async () => {
-    mockRun.mockResolvedValueOnce({ ID: LISTING_ID, sellerId: SELLER_ID, status: "draft" });
+    mockRun
+      .mockResolvedValueOnce(PENDING_REPORT) // validateReport
+      .mockResolvedValueOnce({ ID: LISTING_ID, sellerId: SELLER_ID, status: "draft" });
     const req = makeReq({ reportId: REPORT_ID, listingId: LISTING_ID });
     await handleDeactivateListing(req);
     expect(req.error).toHaveBeenCalledWith(400, "Seule une annonce publiee peut etre suspendue");
@@ -137,6 +168,7 @@ describe("handleDeactivateListing", () => {
 
   it("suspends a published listing and creates action record", async () => {
     mockRun
+      .mockResolvedValueOnce(PENDING_REPORT) // validateReport
       .mockResolvedValueOnce({ ID: LISTING_ID, sellerId: SELLER_ID, status: "published" }) // listing
       .mockResolvedValueOnce(undefined) // UPDATE listing
       .mockResolvedValueOnce(undefined) // INSERT action
@@ -149,13 +181,20 @@ describe("handleDeactivateListing", () => {
     expect(result.actionId).toBe("action-uuid-001");
     expect(result.message).toBe("Annonce suspendue avec succes");
     expect(mockCreateNotification).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: SELLER_ID, type: "system" }),
+      expect.objectContaining({
+        userId: SELLER_ID,
+        type: "system",
+        body: "Votre annonce a ete mise en pause pour verification",
+      }),
     );
     expect(mockAuditLog).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "moderation.action_taken",
         targetType: "Listing",
         targetId: LISTING_ID,
+        ipAddress: "127.0.0.1",
+        userAgent: "test-agent",
+        requestId: "req-001",
       }),
     );
   });
@@ -181,8 +220,17 @@ describe("handleSendWarning", () => {
     expect(req.error).toHaveBeenCalledWith(400, "Identifiant utilisateur invalide");
   });
 
+  it("returns 404 when report not found", async () => {
+    mockRun.mockResolvedValueOnce(null); // validateReport
+    const req = makeReq({ reportId: REPORT_ID, userId: USER_ID });
+    await handleSendWarning(req);
+    expect(req.error).toHaveBeenCalledWith(404, "Rapport introuvable");
+  });
+
   it("returns 404 when user not found", async () => {
-    mockRun.mockResolvedValueOnce(null);
+    mockRun
+      .mockResolvedValueOnce(PENDING_REPORT) // validateReport
+      .mockResolvedValueOnce(null); // user lookup
     const req = makeReq({ reportId: REPORT_ID, userId: USER_ID });
     await handleSendWarning(req);
     expect(req.error).toHaveBeenCalledWith(404, "Utilisateur introuvable");
@@ -190,6 +238,7 @@ describe("handleSendWarning", () => {
 
   it("sends warning with custom message", async () => {
     mockRun
+      .mockResolvedValueOnce(PENDING_REPORT) // validateReport
       .mockResolvedValueOnce({ ID: USER_ID, status: "active" }) // user
       .mockResolvedValueOnce(undefined) // INSERT action
       .mockResolvedValueOnce(undefined); // UPDATE report
@@ -206,10 +255,17 @@ describe("handleSendWarning", () => {
     expect(mockCreateNotification).toHaveBeenCalledWith(
       expect.objectContaining({ userId: USER_ID, body: "Custom warning" }),
     );
+    // CR-Fix #6: Verify warningMessage is included in audit details
+    expect(mockAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        details: expect.objectContaining({ warningMessage: "Custom warning" }),
+      }),
+    );
   });
 
   it("sends warning with default message when no custom message and no template", async () => {
     mockRun
+      .mockResolvedValueOnce(PENDING_REPORT) // validateReport
       .mockResolvedValueOnce({ ID: USER_ID, status: "active" }) // user
       .mockResolvedValueOnce(null) // ConfigModerationRule lookup (no template found)
       .mockResolvedValueOnce(undefined) // INSERT action
@@ -229,6 +285,7 @@ describe("handleSendWarning", () => {
   it("sends warning with configurable template from ConfigModerationRule", async () => {
     const templateMessage = "Veuillez respecter les conditions d'utilisation de la plateforme.";
     mockRun
+      .mockResolvedValueOnce(PENDING_REPORT) // validateReport
       .mockResolvedValueOnce({ ID: USER_ID, status: "active" }) // user
       .mockResolvedValueOnce({ action: templateMessage }) // ConfigModerationRule template
       .mockResolvedValueOnce(undefined) // INSERT action
@@ -266,15 +323,26 @@ describe("handleDeactivateAccount", () => {
     expect(req.error).toHaveBeenCalledWith(400, "Confirmation requise pour desactiver un compte");
   });
 
+  it("returns 404 when report not found", async () => {
+    mockRun.mockResolvedValueOnce(null); // validateReport
+    const req = makeReq({ reportId: REPORT_ID, userId: USER_ID, confirmed: true });
+    await handleDeactivateAccount(req);
+    expect(req.error).toHaveBeenCalledWith(404, "Rapport introuvable");
+  });
+
   it("returns 404 when user not found", async () => {
-    mockRun.mockResolvedValueOnce(null);
+    mockRun
+      .mockResolvedValueOnce(PENDING_REPORT) // validateReport
+      .mockResolvedValueOnce(null); // user lookup
     const req = makeReq({ reportId: REPORT_ID, userId: USER_ID, confirmed: true });
     await handleDeactivateAccount(req);
     expect(req.error).toHaveBeenCalledWith(404, "Utilisateur introuvable");
   });
 
   it("returns 400 when user already suspended", async () => {
-    mockRun.mockResolvedValueOnce({ ID: USER_ID, status: "suspended" });
+    mockRun
+      .mockResolvedValueOnce(PENDING_REPORT) // validateReport
+      .mockResolvedValueOnce({ ID: USER_ID, status: "suspended" });
     const req = makeReq({ reportId: REPORT_ID, userId: USER_ID, confirmed: true });
     await handleDeactivateAccount(req);
     expect(req.error).toHaveBeenCalledWith(400, "Compte deja suspendu");
@@ -282,6 +350,7 @@ describe("handleDeactivateAccount", () => {
 
   it("suspends user account and all published listings", async () => {
     mockRun
+      .mockResolvedValueOnce(PENDING_REPORT) // validateReport
       .mockResolvedValueOnce({ ID: USER_ID, status: "active" }) // user
       .mockResolvedValueOnce(undefined) // UPDATE user
       .mockResolvedValueOnce(undefined) // UPDATE listings
@@ -305,11 +374,17 @@ describe("handleDeactivateAccount", () => {
         body: expect.stringContaining("Repeated violations"),
       }),
     );
-    expect(mockAuditLog).toHaveBeenCalledWith(expect.objectContaining({ severity: "critical" }));
+    expect(mockAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        severity: "critical",
+        ipAddress: "127.0.0.1",
+      }),
+    );
   });
 
   it("suspends account with generic message when no reason", async () => {
     mockRun
+      .mockResolvedValueOnce(PENDING_REPORT) // validateReport
       .mockResolvedValueOnce({ ID: USER_ID, status: "active" })
       .mockResolvedValueOnce(undefined)
       .mockResolvedValueOnce(undefined)
@@ -380,7 +455,12 @@ describe("handleReactivateListing", () => {
         title: "Annonce reactivee",
       }),
     );
-    expect(mockAuditLog).toHaveBeenCalledWith(expect.objectContaining({ severity: "info" }));
+    expect(mockAuditLog).toHaveBeenCalledWith(
+      expect.objectContaining({
+        severity: "info",
+        ipAddress: "127.0.0.1",
+      }),
+    );
   });
 });
 
@@ -512,6 +592,7 @@ describe("handleDismissReport", () => {
         action: "moderation.action_taken",
         targetType: "Report",
         targetId: REPORT_ID,
+        ipAddress: "127.0.0.1",
       }),
     );
   });

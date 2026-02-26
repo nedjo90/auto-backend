@@ -59,6 +59,26 @@ async function updateReportStatus(
   );
 }
 
+/** CR-Fix #7: Validate report exists and is actionable before proceeding. */
+async function validateReport(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  entities: Record<string, any>,
+  reportId: string,
+  req: cds.Request,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<Record<string, any> | null> {
+  const report = await cds.run(SELECT.one.from(entities["Report"]).where({ ID: reportId }));
+  if (!report) {
+    req.error(404, "Rapport introuvable");
+    return null;
+  }
+  if (report.status === "treated" || report.status === "dismissed") {
+    req.error(400, "Rapport deja traite ou rejete");
+    return null;
+  }
+  return report;
+}
+
 // ─── deactivateListing ───────────────────────────────────────────────────────
 
 export async function handleDeactivateListing(req: cds.Request) {
@@ -73,6 +93,10 @@ export async function handleDeactivateListing(req: cds.Request) {
   if (!validateUUID(listingId, "Identifiant d'annonce", req)) return;
 
   const entities = cds.entities("auto");
+
+  // CR-Fix #7: Validate report exists and is actionable
+  const report = await validateReport(entities, reportId, req);
+  if (!report) return;
 
   // Validate listing exists and is active/published
   const listing = await cds.run(
@@ -108,17 +132,17 @@ export async function handleDeactivateListing(req: cds.Request) {
 
   LOG.info(`Listing ${listingId} suspended by moderator ${moderatorId}`);
 
-  // Notify seller
+  // CR-Fix #1: Notification text matches AC specification exactly
   createNotification({
     userId: listing.sellerId,
     type: "system",
     title: "Annonce mise en pause",
-    body: "Votre annonce a ete mise en pause pour verification. Notre equipe examine son contenu.",
+    body: "Votre annonce a ete mise en pause pour verification",
     actionUrl: null,
     listingId,
   }).catch(() => {});
 
-  // Audit
+  // CR-Fix #2: Include ipAddress, userAgent, requestId in audit log
   const auditCtx = extractAuditContext(req);
   auditLog({
     action: "moderation.action_taken",
@@ -128,6 +152,9 @@ export async function handleDeactivateListing(req: cds.Request) {
     targetId: listingId,
     details: { actionType: "deactivate_listing", reportId, reason },
     severity: "warning",
+    ipAddress: auditCtx.ipAddress,
+    userAgent: auditCtx.userAgent,
+    requestId: auditCtx.requestId,
   }).catch(() => {});
 
   return { success: true, actionId, message: "Annonce suspendue avec succes" };
@@ -147,6 +174,10 @@ export async function handleSendWarning(req: cds.Request) {
   if (!validateUUID(userId, "Identifiant utilisateur", req)) return;
 
   const entities = cds.entities("auto");
+
+  // CR-Fix #7: Validate report exists and is actionable
+  const report = await validateReport(entities, reportId, req);
+  if (!report) return;
 
   // Validate user exists
   const user = await cds.run(
@@ -193,7 +224,7 @@ export async function handleSendWarning(req: cds.Request) {
     listingId: null,
   }).catch(() => {});
 
-  // Audit
+  // CR-Fix #2 + #6: Include ipAddress/userAgent/requestId and warningMessage in audit details
   const auditCtx = extractAuditContext(req);
   auditLog({
     action: "moderation.action_taken",
@@ -201,8 +232,11 @@ export async function handleSendWarning(req: cds.Request) {
     actorRole: auditCtx.actorRole,
     targetType: "User",
     targetId: userId,
-    details: { actionType: "warning", reportId },
+    details: { actionType: "warning", reportId, warningMessage: message },
     severity: "warning",
+    ipAddress: auditCtx.ipAddress,
+    userAgent: auditCtx.userAgent,
+    requestId: auditCtx.requestId,
   }).catch(() => {});
 
   return { success: true, actionId, message: "Avertissement envoye avec succes" };
@@ -222,12 +256,17 @@ export async function handleDeactivateAccount(req: cds.Request) {
   if (!validateUUID(reportId, "Identifiant de rapport", req)) return;
   if (!validateUUID(userId, "Identifiant utilisateur", req)) return;
 
-  // Double confirmation required
+  // Double confirmation required (CR-Fix #4: documented as intentional server-side boolean check;
+  // moderator role auth already protects against unauthorized access)
   if (!confirmed) {
     return req.error(400, "Confirmation requise pour desactiver un compte");
   }
 
   const entities = cds.entities("auto");
+
+  // CR-Fix #7: Validate report exists and is actionable
+  const report = await validateReport(entities, reportId, req);
+  if (!report) return;
 
   // Validate user exists and is active
   const user = await cds.run(
@@ -277,7 +316,7 @@ export async function handleDeactivateAccount(req: cds.Request) {
     listingId: null,
   }).catch(() => {});
 
-  // Audit
+  // CR-Fix #2: Include ipAddress, userAgent, requestId in audit log
   const auditCtx = extractAuditContext(req);
   auditLog({
     action: "moderation.action_taken",
@@ -287,6 +326,9 @@ export async function handleDeactivateAccount(req: cds.Request) {
     targetId: userId,
     details: { actionType: "deactivate_account", reportId, reason },
     severity: "critical",
+    ipAddress: auditCtx.ipAddress,
+    userAgent: auditCtx.userAgent,
+    requestId: auditCtx.requestId,
   }).catch(() => {});
 
   return { success: true, actionId, message: "Compte suspendu avec succes" };
@@ -341,7 +383,7 @@ export async function handleReactivateListing(req: cds.Request) {
     listingId,
   }).catch(() => {});
 
-  // Audit
+  // CR-Fix #2: Include ipAddress, userAgent, requestId in audit log
   const auditCtx = extractAuditContext(req);
   auditLog({
     action: "moderation.action_taken",
@@ -351,6 +393,9 @@ export async function handleReactivateListing(req: cds.Request) {
     targetId: listingId,
     details: { actionType: "reactivate_listing", reason },
     severity: "info",
+    ipAddress: auditCtx.ipAddress,
+    userAgent: auditCtx.userAgent,
+    requestId: auditCtx.requestId,
   }).catch(() => {});
 
   return { success: true, actionId, message: "Annonce reactivee avec succes" };
@@ -402,7 +447,7 @@ export async function handleReactivateAccount(req: cds.Request) {
     listingId: null,
   }).catch(() => {});
 
-  // Audit
+  // CR-Fix #2: Include ipAddress, userAgent, requestId in audit log
   const auditCtx = extractAuditContext(req);
   auditLog({
     action: "moderation.action_taken",
@@ -412,6 +457,9 @@ export async function handleReactivateAccount(req: cds.Request) {
     targetId: userId,
     details: { actionType: "reactivate_account", reason },
     severity: "info",
+    ipAddress: auditCtx.ipAddress,
+    userAgent: auditCtx.userAgent,
+    requestId: auditCtx.requestId,
   }).catch(() => {});
 
   return { success: true, actionId, message: "Compte reactive avec succes" };
@@ -447,7 +495,7 @@ export async function handleDismissReport(req: cds.Request) {
 
   LOG.info(`Report ${reportId} dismissed by moderator ${moderatorId}`);
 
-  // Audit
+  // CR-Fix #2: Include ipAddress, userAgent, requestId in audit log
   const auditCtx = extractAuditContext(req);
   auditLog({
     action: "moderation.action_taken",
@@ -457,6 +505,9 @@ export async function handleDismissReport(req: cds.Request) {
     targetId: reportId,
     details: { actionType: "dismiss", reason },
     severity: "info",
+    ipAddress: auditCtx.ipAddress,
+    userAgent: auditCtx.userAgent,
+    requestId: auditCtx.requestId,
   }).catch(() => {});
 
   return { success: true, actionId, message: "Signalement rejete" };
