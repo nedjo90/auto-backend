@@ -12,4 +12,5 @@ entity Report : cuid, managed {
   severity    : String(20) not null;   // low, medium, high, critical
   description : String(2000);
   status      : String(20) default 'pending';  // pending, in_progress, treated, dismissed
+  assignedTo  : String(36);                     // moderator user ID
 }
